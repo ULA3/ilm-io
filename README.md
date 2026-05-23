@@ -2,7 +2,7 @@
 
 An AI-powered platform that transforms uploaded study materials (PDF, audio, images) into accessible formats — slides, audiobooks, visual summaries, worksheets — optimised for ADHD, dyslexia, autism spectrum, and general neurodivergent learners.
 
-Built for **Bank Islam FinTech Hackathon 2026 — Track 2: AI for Good**.
+An inclusive learning platform for neurodivergent students and the educators who support them.
 
 ```
 Frontend (Next.js 15)  →  Backend (FastAPI)  →  LLM (YTL ILMU AI / nemo-super)
@@ -30,7 +30,8 @@ FinTech_Hackathon/
     ├── .env.example         ← Copy to .env and fill in keys
     ├── models/schemas.py
     ├── services/
-    │   ├── ai_service.py        ← Groq (Llama 3.3 70B) — all LLM calls
+    │   ├── llm_client.py          ← YTL ILMU AI (nemo-super) — all LLM calls
+    │   ├── ai_service.py          ← prompts + chat (uses llm_client)
     │   ├── document_processor.py← PDF / image / audio / DOCX extraction
     │   ├── tts_service.py       ← ElevenLabs + OpenAI TTS fallback
     │   └── supabase_client.py   ← DB queries + file storage
@@ -61,10 +62,12 @@ FinTech_Hackathon/
 
 You need three free accounts:
 
-### Groq (LLM — completely free)
-1. Go to [console.groq.com/keys](https://console.groq.com/keys)
-2. Sign up — no credit card required
-3. Click **Create API key** → copy the key (starts with `gsk_`)
+### YTL ILMU AI (LLM — required)
+1. Go to [ilmu.ai](https://ilmu.ai) and create an API key
+2. Set in `backend/.env`:
+   - `ILMU_API_KEY`
+   - `ILMU_BASE_URL` (OpenAI-compatible endpoint)
+   - `ILMU_MODEL=nemo-super`
 
 ### Supabase (database + file storage — free tier)
 1. Go to [app.supabase.com](https://app.supabase.com) → **New project**
@@ -95,7 +98,9 @@ Copy-Item .env.example .env
 
 Open `.env` and set:
 ```env
-GROQ_API_KEY=gsk_...          # required
+ILMU_API_KEY=...                # required
+ILMU_BASE_URL=https://api.ytlailabs.tech/v1
+ILMU_MODEL=nemo-super
 OPENAI_API_KEY=sk-...         # required only for audio file uploads
 ELEVENLABS_API_KEY=sk_...     # required for audiobook generation
 SUPABASE_URL=https://xxx.supabase.co
@@ -166,7 +171,7 @@ npm run dev
 3. Upload a file (PDF, image, audio, DOCX)
    └── Backend extracts text via PyMuPDF / Tesseract / Whisper
 4. Click a generate button (e.g. "Slides", "Worksheet")
-   └── FastAPI calls Groq (Llama 3.3 70B) with a structured prompt
+   └── FastAPI calls YTL ILMU AI (nemo-super) with structured agent prompts
    └── Result is saved to Supabase
    └── Frontend renders the output with a Download button
 5. Open the AI chatbot (bottom-right button)
@@ -204,7 +209,7 @@ Full interactive docs: **http://localhost:8000/api/docs**
 |---|---|---|
 | **YTL ILMU AI** (nemo-super) | All text generation — slides, worksheets, insights, chatbot, financial literacy | API key via ilmu.ai |
 | **ElevenLabs** | Audiobook TTS — natural, calm voice | 10,000 chars/month free |
-| **OpenAI Whisper** | Transcribe uploaded MP3/WAV → text | ~$0.006/min |
+| **OpenAI Whisper** | Transcribe uploaded MP3/WAV → text | pay-per-use |
 | **OpenAI TTS** | Audiobook fallback if ElevenLabs unavailable | ~$0.015/1k chars |
 | **PyMuPDF** | PDF text extraction + page rendering | free (local) |
 | **Tesseract** | OCR for image-only PDFs and photos | free (local) |
@@ -243,7 +248,7 @@ Converts extracted document text into a natural-sounding MP3 audiobook. Used in 
 **Why it was chosen:**
 - High-quality, human-sounding voice synthesis (significantly more natural than OpenAI TTS for longer passages)
 - Simple REST API with Python SDK
-- Free tier (10,000 characters/month) is sufficient for a hackathon demo
+- Free tier (10,000 characters/month) is sufficient for classroom pilots
 
 **How it's used:**
 `backend/services/tts_service.py` calls ElevenLabs with the first 3,000 characters of the extracted text. The resulting MP3 is stored in Supabase Storage and served via a download URL.
@@ -263,7 +268,7 @@ Transcribes uploaded audio files (MP3, WAV) into text. The transcript is then tr
 **Why it was chosen:**
 - Best-in-class open speech recognition accuracy across accents and noise conditions
 - Widely supported via OpenAI's API
-- Pay-per-use (~$0.006/min) keeps costs low at hackathon scale
+- Pay-per-use keeps costs low for classroom-scale use
 
 **How it's used:**
 `backend/services/document_processor.py` detects audio file uploads and sends them to `openai.audio.transcriptions.create(model="whisper-1")`. The returned transcript is stored alongside the file metadata.
@@ -401,8 +406,8 @@ Performs optical character recognition on image-only PDFs and direct image uploa
 
 ## Troubleshooting
 
-**`GROQ_API_KEY` validation error on startup**
-→ Make sure your `.env` file exists in `backend/` (not `.env.example`).
+**`ILMU_API_KEY` missing or LLM errors**
+→ Copy `backend/.env.example` to `.env` and set `ILMU_API_KEY`, `ILMU_BASE_URL`, `ILMU_MODEL`.
 
 **Upload returns 500**
 → Check Tesseract is installed: `tesseract --version` in a terminal.

@@ -78,7 +78,7 @@ async def upload_file(file: UploadFile = File(...)):
     try:
         await run_in_threadpool(supabase_client.save_upload_sync, record)
     except Exception as e:
-        # Non-fatal for hackathon: in-memory file_id still works for generation
+        # Non-fatal: in-memory file_id still works for generation
         pass
 
     return UploadResponse(

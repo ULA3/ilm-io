@@ -2,38 +2,21 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { TransformComparisonDemo } from "@/app/components/landing/TransformComparisonDemo";
+import { ResearchMalaysiaSection } from "@/app/components/landing/ResearchMalaysiaSection";
+import { IlmSectionLabel } from "@/app/components/ilm/IlmSectionLabel";
+import { IlmLogo } from "@/app/components/ilm/IlmLogo";
+import { IlmLanguageSelect } from "@/app/components/ilm/IlmLanguageSelect";
+import { LandingIlmChat } from "@/app/components/landing/LandingIlmChat";
+import { PROFILE_FORMAT_OPTIONS } from "@/lib/ilm-formats";
+import { useLandingCopy, useUiStrings } from "@/lib/use-ui-strings";
 
-type TransformMode = "original" | "neuro" | "visual" | "examples";
-
-const SAMPLE = {
-  original:
-    "Photosynthesis is the biochemical process whereby autotrophic organisms convert light energy into chemical energy stored in glucose through the Calvin cycle and light-dependent reactions in chloroplasts.",
-  neuro:
-    "Plants make food from sunlight.\n\n• Light hits leaves → energy captured\n• Water splits → oxygen released\n• Sugar built step by step\n\nOne big idea per line. Short sentences. No surprises.",
-  visual:
-    "☀️ Sunlight\n    ↓\n🌿 Chloroplast\n    ↓\n💧 + CO₂ → 🍬 Sugar + O₂\n\nColour-coded branches · mind-map style",
-  examples:
-    "Like a solar panel on a leaf — sunlight in, food stored.\n\nReal life: the spinach in your lunch got its energy from the sun yesterday.",
-};
-
-const PAIN_POINTS = [
-  { emoji: "📄", title: "Dense PDFs", desc: "Walls of text cause overload before learning even starts." },
-  { emoji: "⏱️", title: "Short focus", desc: "Long chapters don't match real attention spans." },
-  { emoji: "🔤", title: "Reading friction", desc: "Fonts and layout weren't designed for dyslexia." },
-  { emoji: "😰", title: "Unpredictable formats", desc: "Every teacher uses a different structure — hard to trust." },
-];
+const PAIN_EMOJI = ["📄", "⏱️", "🔤", "😰"];
 
 const PROFILE_OPTS = {
   condition: ["ADHD", "Dyslexia", "Autism", "Mixed"],
   pace: ["Quick bursts", "Steady blocks", "Flexible"],
-  format: ["Slides", "Visual map", "Practice Qs", "Easy read"],
 };
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-xs font-bold uppercase tracking-widest text-sage-hi mb-2">{children}</p>
-  );
-}
 
 function FloatingShapes() {
   const shapes = [
@@ -64,10 +47,11 @@ function FloatingShapes() {
 }
 
 export function LandingPage() {
-  const [mode, setMode] = useState<TransformMode>("original");
+  const ui = useUiStrings();
+  const L = useLandingCopy();
   const [condition, setCondition] = useState("ADHD");
   const [pace, setPace] = useState("Quick bursts");
-  const [format, setFormat] = useState("Slides");
+  const [format, setFormat] = useState<string>(PROFILE_FORMAT_OPTIONS[0].label);
   const [energy, setEnergy] = useState(65);
   const [accFont, setAccFont] = useState<"default" | "dyslexic">("default");
   const [accSize, setAccSize] = useState<"md" | "lg">("md");
@@ -99,7 +83,7 @@ export function LandingPage() {
     visual: condition === "Autism" ? 72 : condition === "ADHD" ? 88 : 65,
     auditory: format.includes("audio") ? 80 : 45,
     structured: condition === "Autism" ? 92 : 55,
-    interactive: format.includes("Practice") ? 85 : 60,
+    interactive: format.includes("Practice") || format.includes("Mind Map") ? 85 : 60,
     calm: condition === "Dyslexia" ? 90 : 70,
   };
 
@@ -112,111 +96,88 @@ export function LandingPage() {
         }
       `}</style>
 
-      {/* ── Hero ── */}
-      <section className="relative overflow-hidden">
-        <FloatingShapes />
-        <div className="relative z-10 max-w-3xl mx-auto px-4 sm:px-6 pt-16 pb-12 text-center">
-          <div className="flex flex-col items-center mb-6">
-            <div className="w-16 h-16 bg-sage rounded-2xl flex items-center justify-center shadow-md mb-3">
-              <span className="text-white text-3xl font-bold">✦</span>
-            </div>
-            <div className="flex items-baseline gap-0.5">
-              <span className="font-serif text-3xl sm:text-4xl font-semibold text-bark-deep">ilm</span>
-              <span className="text-bark-faint text-lg">.io</span>
-            </div>
+      {/* One place for role choice — avoids duplicate hero + footer buttons */}
+      <header className="sticky top-0 z-30 bg-cream/90 backdrop-blur-md border-b border-sand-mid">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-4 min-h-[3.75rem]">
+          <Link href="/" className="shrink-0" aria-label="ilm.io home">
+            <IlmLogo size="sm" variant="white-on-sage" showWordmark />
+          </Link>
+          <div className="hidden sm:block w-44 shrink-0 self-center">
+            <IlmLanguageSelect id="ilm-lang-header" className="!pb-1" />
           </div>
-          <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl font-semibold text-bark-deep leading-[1.12] mb-3">
-            Learning your way.<br />
-            <span className="text-sage">At your pace.</span>
-            <br />
-            In your language.
-          </h1>
-          <p className="text-bark-soft text-base sm:text-lg max-w-xl mx-auto leading-relaxed">
-            An adaptive learning platform for neurodivergent learners — not a generic summarizer.
-            Your notes become formats that match how your brain works.
-          </p>
-          <div className="flex flex-wrap justify-center gap-3 mt-8">
+          <nav className="flex items-center gap-2" aria-label="Choose your role">
             <Link
               href="/student"
-              className="px-6 py-3 bg-sage text-white font-semibold rounded-2xl hover:opacity-90 transition-opacity"
+              className="px-4 py-2 text-sm font-semibold rounded-xl bg-sage text-white hover:opacity-90 transition-opacity"
             >
-              Start as student
+              {ui.nav.student}
             </Link>
             <Link
               href="/educator"
-              className="px-6 py-3 bg-parch border-2 border-terra text-terra-hi font-semibold rounded-2xl hover:bg-terra-lo transition-colors"
+              className="px-4 py-2 text-sm font-semibold rounded-xl border-2 border-terra text-terra-hi hover:bg-terra-lo transition-colors"
             >
-              I&apos;m a teacher
+              {ui.nav.educator}
             </Link>
-          </div>
+          </nav>
+        </div>
+      </header>
+
+      {/* ── Hero ── */}
+      <section className="relative overflow-hidden">
+        <FloatingShapes />
+        <div className="relative z-10 max-w-3xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-12 text-center">
+          <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl font-semibold text-bark-deep leading-[1.12] mb-3">
+            {L.hero.line1}
+            <br />
+            <span className="text-sage">{L.hero.line2}</span>
+            <br />
+            {L.hero.line3}
+          </h1>
+          <p className="text-bark-soft text-base sm:text-lg max-w-lg mx-auto leading-relaxed">
+            {L.hero.sub}
+          </p>
+          <a
+            href="#how-it-works"
+            className="inline-flex items-center gap-2 mt-8 px-5 py-2.5 text-sm font-semibold text-sage-hi bg-sage-lo rounded-2xl hover:bg-sage/20 transition-colors"
+          >
+            {L.hero.cta}
+            <span aria-hidden>↓</span>
+          </a>
         </div>
       </section>
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-20 space-y-16 sm:space-y-20">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-24 space-y-12">
+        <div className="sm:hidden max-w-xs mx-auto pb-1">
+          <IlmLanguageSelect id="ilm-lang-mobile" />
+        </div>
+
         {/* 1 — Transformation demo */}
-        <section aria-labelledby="transform-heading">
-          <SectionLabel>See the difference</SectionLabel>
+        <section id="how-it-works" aria-labelledby="transform-heading">
+          <IlmSectionLabel>{L.transform.label}</IlmSectionLabel>
           <h2 id="transform-heading" className="font-serif text-2xl sm:text-3xl font-semibold text-bark-deep mb-2">
-            One note, four ways to learn it
+            {L.transform.title}
           </h2>
-          <p className="text-bark-soft text-sm mb-5 max-w-2xl">
-            Same topic — transformed for focus, clarity, visuals, and real-life examples.
-          </p>
-          <div className="bg-parch rounded-3xl border border-sand-mid p-4 sm:p-5 shadow-sm">
-            <div className="flex flex-wrap gap-2 mb-4" role="tablist">
-              {(
-                [
-                  ["original", "Original"],
-                  ["neuro", "Neuro-friendly"],
-                  ["visual", "Visual mode"],
-                  ["examples", "Examples mode"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  aria-selected={mode === id}
-                  onClick={() => setMode(id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    mode === id
-                      ? "bg-bark-deep text-white"
-                      : "bg-sand text-bark-soft hover:text-bark-deep"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div
-              className={`rounded-2xl p-4 sm:p-5 min-h-[140px] text-left whitespace-pre-line leading-relaxed ${
-                mode === "original"
-                  ? "bg-sand text-bark-soft text-sm"
-                  : mode === "neuro"
-                    ? "bg-sage-lo text-bark-deep text-base"
-                    : mode === "visual"
-                      ? "bg-terra-lo text-bark-deep font-mono text-sm"
-                      : "bg-honey-lo text-bark-deep text-sm"
-              }`}
-            >
-              {SAMPLE[mode]}
-            </div>
+          <p className="text-bark-soft text-sm mb-4">{L.transform.sub}</p>
+          <div className="bg-parch rounded-3xl border border-sand-mid p-4 sm:p-6 shadow-sm">
+            <TransformComparisonDemo />
           </div>
         </section>
 
+        <ResearchMalaysiaSection />
+
         {/* 3 — Pain points */}
         <section aria-labelledby="pain-heading">
-          <SectionLabel>Why we built this</SectionLabel>
+          <IlmSectionLabel>{L.pain.label}</IlmSectionLabel>
           <h2 id="pain-heading" className="font-serif text-2xl sm:text-3xl font-semibold text-bark-deep mb-5">
-            Built for real student struggles
+            {L.pain.title}
           </h2>
           <div className="grid sm:grid-cols-2 gap-3">
-            {PAIN_POINTS.map((p) => (
+            {L.pain.items.map((p, i) => (
               <div
                 key={p.title}
                 className="bg-parch rounded-2xl border border-sand-mid p-4 flex gap-3 hover:border-sage transition-colors"
               >
-                <span className="text-2xl shrink-0">{p.emoji}</span>
+                <span className="text-2xl shrink-0">{PAIN_EMOJI[i]}</span>
                 <div>
                   <p className="font-bold text-bark-deep text-sm">{p.title}</p>
                   <p className="text-bark-soft text-xs mt-1 leading-relaxed">{p.desc}</p>
@@ -228,27 +189,25 @@ export function LandingPage() {
 
         {/* 4 — Before / after */}
         <section aria-labelledby="compare-heading">
-          <SectionLabel>Before & after</SectionLabel>
+          <IlmSectionLabel>{L.compare.label}</IlmSectionLabel>
           <h2 id="compare-heading" className="font-serif text-2xl sm:text-3xl font-semibold text-bark-deep mb-5">
-            Learning before vs with ilm.io
+            {L.compare.title}
           </h2>
           <div className="grid md:grid-cols-2 gap-4">
             <div className="rounded-2xl border-2 border-sand-mid bg-sand/50 p-5">
-              <p className="text-xs font-bold text-bark-faint uppercase mb-3">Before</p>
+              <p className="text-xs font-bold text-bark-faint uppercase mb-3">{L.compare.before}</p>
               <ul className="space-y-2 text-sm text-bark-soft">
-                <li>❌ Same PDF for everyone</li>
-                <li>❌ Re-read chapters 3× to understand</li>
-                <li>❌ No format choice</li>
-                <li>❌ Teachers guess what helps</li>
+                {L.compare.beforeList.map((item) => (
+                  <li key={item}>❌ {item}</li>
+                ))}
               </ul>
             </div>
             <div className="rounded-2xl border-2 border-sage bg-sage-lo/40 p-5">
-              <p className="text-xs font-bold text-sage-hi uppercase mb-3">With ilm.io</p>
+              <p className="text-xs font-bold text-sage-hi uppercase mb-3">{L.compare.after}</p>
               <ul className="space-y-2 text-sm text-bark-deep">
-                <li>✓ Focus / calm / easy-read slides</li>
-                <li>✓ Mind maps & practice questions</li>
-                <li>✓ Mood-aware Ilm study actions</li>
-                <li>✓ Educator insights & heatmaps</li>
+                {L.compare.afterList.map((item) => (
+                  <li key={item}>✓ {item}</li>
+                ))}
               </ul>
             </div>
           </div>
@@ -256,14 +215,14 @@ export function LandingPage() {
 
         {/* 2 — Learning profile */}
         <section aria-labelledby="profile-heading">
-          <SectionLabel>Personalise</SectionLabel>
+          <IlmSectionLabel>{L.profile.label}</IlmSectionLabel>
           <h2 id="profile-heading" className="font-serif text-2xl sm:text-3xl font-semibold text-bark-deep mb-5">
-            Build your learning profile
+            {L.profile.title}
           </h2>
           <div className="grid lg:grid-cols-2 gap-6">
             <div className="bg-parch rounded-3xl border border-sand-mid p-5 space-y-4">
               <div>
-                <p className="text-xs font-semibold text-bark-faint mb-2">How do you learn best?</p>
+                <p className="text-xs font-semibold text-bark-faint mb-2">{L.profile.condition}</p>
                 <div className="flex flex-wrap gap-2">
                   {PROFILE_OPTS.condition.map((c) => (
                     <button
@@ -282,7 +241,7 @@ export function LandingPage() {
                 </div>
               </div>
               <div>
-                <p className="text-xs font-semibold text-bark-faint mb-2">Study pace</p>
+                <p className="text-xs font-semibold text-bark-faint mb-2">{L.profile.pace}</p>
                 <div className="flex flex-wrap gap-2">
                   {PROFILE_OPTS.pace.map((p) => (
                     <button
@@ -301,20 +260,20 @@ export function LandingPage() {
                 </div>
               </div>
               <div>
-                <p className="text-xs font-semibold text-bark-faint mb-2">Preferred output</p>
+                <p className="text-xs font-semibold text-bark-faint mb-2">{L.profile.output}</p>
                 <div className="flex flex-wrap gap-2">
-                  {PROFILE_OPTS.format.map((f) => (
+                  {PROFILE_FORMAT_OPTIONS.map((f) => (
                     <button
-                      key={f}
+                      key={f.key}
                       type="button"
-                      onClick={() => setFormat(f)}
+                      onClick={() => setFormat(f.label)}
                       className={`px-3 py-1 rounded-full text-xs font-bold border-2 transition-all ${
-                        format === f
+                        format === f.label
                           ? "border-terra bg-terra-lo text-terra-hi"
                           : "border-sand-mid bg-white text-bark-soft"
                       }`}
                     >
-                      {f}
+                      {f.label}
                     </button>
                   ))}
                 </div>
@@ -323,14 +282,14 @@ export function LandingPage() {
 
             {/* 7 — Fingerprint */}
             <div className="bg-parch rounded-3xl border border-sand-mid p-5">
-              <p className="text-xs font-bold text-bark-faint uppercase mb-4">Your learning fingerprint</p>
+              <p className="text-xs font-bold text-bark-faint uppercase mb-4">{L.profile.fingerprint}</p>
               <div className="space-y-3">
                 {(
-                  Object.entries(fingerprint) as [string, number][]
+                  Object.entries(fingerprint) as [keyof typeof fingerprint, number][]
                 ).map(([key, val]) => (
                   <div key={key}>
                     <div className="flex justify-between text-xs mb-1">
-                      <span className="text-bark-soft capitalize">{key}</span>
+                      <span className="text-bark-soft">{L.profile.fpKeys[key] ?? key}</span>
                       <span className="font-bold text-bark-deep">{val}%</span>
                     </div>
                     <div className="h-2.5 bg-sand rounded-full overflow-hidden">
@@ -342,18 +301,16 @@ export function LandingPage() {
                   </div>
                 ))}
               </div>
-              <p className="text-[11px] text-bark-faint mt-4 italic">
-                Preview only — upload material on the student dashboard to generate your real profile.
-              </p>
+              <p className="text-[11px] text-bark-faint mt-4 italic">{L.profile.fingerprintNote}</p>
             </div>
           </div>
         </section>
 
         {/* 5 — Accessibility preview */}
         <section aria-labelledby="a11y-heading">
-          <SectionLabel>Accessibility</SectionLabel>
+          <IlmSectionLabel>{L.a11y.label}</IlmSectionLabel>
           <h2 id="a11y-heading" className="font-serif text-2xl sm:text-3xl font-semibold text-bark-deep mb-5">
-            Controls that travel with you
+            {L.a11y.title}
           </h2>
           <div
             className={`rounded-3xl border-2 p-5 transition-colors ${
@@ -368,7 +325,7 @@ export function LandingPage() {
                   accFont === "dyslexic" ? "border-sage bg-sage-lo" : "border-sand-mid"
                 }`}
               >
-                OpenDyslexic font
+                {L.a11y.dyslexic}
               </button>
               <button
                 type="button"
@@ -377,7 +334,7 @@ export function LandingPage() {
                   accSize === "lg" ? "border-sage bg-sage-lo" : "border-sand-mid"
                 }`}
               >
-                Larger text
+                {L.a11y.larger}
               </button>
               <button
                 type="button"
@@ -386,7 +343,7 @@ export function LandingPage() {
                   highContrast ? "border-bark-deep bg-bark-deep text-white" : "border-sand-mid"
                 }`}
               >
-                High contrast
+                {L.a11y.contrast}
               </button>
             </div>
             <p
@@ -397,19 +354,18 @@ export function LandingPage() {
                 fontFamily: accFont === "dyslexic" ? "Comic Sans MS, OpenDyslexic, sans-serif" : undefined,
               }}
             >
-              This is how your study content can look — adjusted before you even open a lesson.
-              Available on every page via the ♿ dock.
+              {L.a11y.preview}
             </p>
           </div>
         </section>
 
         {/* 6 — Energy study demo */}
         <section aria-labelledby="energy-heading">
-          <SectionLabel>Energy-aware</SectionLabel>
+          <IlmSectionLabel>{L.energy.label}</IlmSectionLabel>
           <h2 id="energy-heading" className="font-serif text-2xl sm:text-3xl font-semibold text-bark-deep mb-2">
-            Study plan that matches your energy
+            {L.energy.title}
           </h2>
-          <p className="text-bark-soft text-sm mb-5">Drag to set how you feel — the plan adapts.</p>
+          <p className="text-bark-soft text-sm mb-5">{L.energy.sub}</p>
           <div className="bg-parch rounded-3xl border border-sand-mid p-5">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-bold text-bark-deep">{energyLabel}</span>
@@ -441,24 +397,25 @@ export function LandingPage() {
           </div>
         </section>
 
-        {/* CTA */}
-        <section className="text-center pt-4">
-          <h2 className="font-serif text-2xl font-semibold text-bark-deep mb-6">
-            Ready to learn your way?
+        {/* Role choice — only CTA block on the page (header links match these) */}
+        <section className="text-center pt-4" aria-labelledby="start-heading">
+          <h2 id="start-heading" className="font-serif text-2xl font-semibold text-bark-deep mb-2">
+            {L.start.title}
           </h2>
+          <p className="text-bark-soft text-sm mb-6 max-w-md mx-auto">{L.start.sub}</p>
           <div className="grid sm:grid-cols-2 gap-4 max-w-xl mx-auto">
             <Link href="/student" className="group block text-left">
               <div className="bg-parch border-2 border-sand-mid rounded-3xl p-6 hover:border-sage hover:bg-sage-lo transition-all hover:-translate-y-0.5">
                 <span className="text-3xl">🌱</span>
-                <h3 className="font-serif text-xl font-semibold text-bark-deep mt-3">Student</h3>
-                <p className="text-bark-soft text-xs mt-1">Upload · transform · Ilm actions</p>
+                <h3 className="font-serif text-xl font-semibold text-bark-deep mt-3">{L.start.studentTitle}</h3>
+                <p className="text-bark-soft text-xs mt-1">{L.start.studentDesc}</p>
               </div>
             </Link>
             <Link href="/educator" className="group block text-left">
               <div className="bg-parch border-2 border-sand-mid rounded-3xl p-6 hover:border-terra hover:bg-terra-lo transition-all hover:-translate-y-0.5">
                 <span className="text-3xl">📚</span>
-                <h3 className="font-serif text-xl font-semibold text-bark-deep mt-3">Educator</h3>
-                <p className="text-bark-soft text-xs mt-1">Agents · insights · reports</p>
+                <h3 className="font-serif text-xl font-semibold text-bark-deep mt-3">{L.start.educatorTitle}</h3>
+                <p className="text-bark-soft text-xs mt-1">{L.start.educatorDesc}</p>
               </div>
             </Link>
           </div>
@@ -466,11 +423,13 @@ export function LandingPage() {
             {["🇬🇧", "🇲🇾", "🇨🇳", "🇮🇳"].map((f, i) => (
               <span key={i}>{f}</span>
             ))}
-            <span>English · BM · 普通话 · தமிழ்</span>
+            <span>{L.start.langs}</span>
           </div>
           <p className="text-bark-faint text-xs mt-8">Built by BiBiLabu 2026</p>
         </section>
       </div>
+
+      <LandingIlmChat />
     </main>
   );
 }

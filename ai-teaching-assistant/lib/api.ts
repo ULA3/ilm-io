@@ -1,19 +1,43 @@
 /**
  * ilm.io — typed API client
- * All calls go to the FastAPI backend at NEXT_PUBLIC_API_URL (default: http://localhost:8000)
+ * Uses NEXT_PUBLIC_API_URL if set; otherwise same-origin /api (Next.js → FastAPI proxy).
  */
 
-// Empty string = use relative URLs (Next.js proxy handles routing to backend)
-const BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiFetchHeaders, apiUrl, getApiBase } from "@/lib/api-base";
+
+const BASE = getApiBase();
+
+function formatApiError(detail: unknown, status: number): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d) => (typeof d === "object" && d && "msg" in d ? String((d as { msg: string }).msg) : String(d))).join("; ");
+  }
+  if (detail && typeof detail === "object" && "message" in detail) {
+    return String((detail as { message: string }).message);
+  }
+  return `Request failed (${status})`;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...init?.headers },
-    ...init,
-  });
+  const url = `${BASE}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers: apiFetchHeaders({
+        "Content-Type": "application/json",
+        ...init?.headers,
+      }),
+    });
+  } catch {
+    const hint = BASE ? BASE : "the Next.js proxy";
+    throw new Error(
+      `Cannot reach the backend (${hint}). Start it: cd backend → uvicorn main:app --reload --port 8000`
+    );
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? "Request failed");
+    throw new Error(formatApiError(err.detail, res.status));
   }
   return res.json() as Promise<T>;
 }
@@ -108,10 +132,16 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface IlmAssistantAction {
+  id: string;
+  label: string;
+}
+
 export interface ChatResponse {
   session_id: string;
   message: string;
   suggestions: string[];
+  actions?: IlmAssistantAction[];
 }
 
 export interface LearningInsight {
@@ -161,10 +191,21 @@ export interface WeeklyReport {
 export async function uploadFile(file: File): Promise<UploadResponse> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE}/api/upload`, { method: "POST", body: form });
+  const url = apiUrl("/api/upload");
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      body: form,
+      headers: apiFetchHeaders(),
+    });
+  } catch {
+    const hint = BASE ? BASE : "Next.js proxy (uvicorn on :8000 + npm run dev)";
+    throw new Error(`Cannot reach the backend (${hint}).`);
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? "Upload failed");
+    throw new Error(formatApiError(err.detail, res.status));
   }
   return res.json();
 }
@@ -223,7 +264,9 @@ export const sendChat = (
   message: string,
   role: "student" | "educator",
   contextFileId?: string,
-  mood = "okay"
+  mood = "okay",
+  lang: Language = "en",
+  app?: AppChatContext
 ) =>
   request<ChatResponse>("/api/chat", {
     method: "POST",
@@ -233,6 +276,9 @@ export const sendChat = (
       role,
       context_file_id: contextFileId,
       mood,
+      lang,
+      app_page: app?.appPage ?? "student",
+      app_context: app?.appContext ?? "",
     }),
   });
 
@@ -277,13 +323,13 @@ export const generateReport = () =>
 
 // ── Download helper ────────────────────────────────────────────────────────
 
-export function downloadUrl(jobId: string, ext: string): string {
-  return `${BASE}/api/generate/download/${jobId}.${ext}`;
+export function downloadUrl(jobId: string, _ext?: string): string {
+  return apiUrl(`/api/download/${jobId}`);
 }
 
 // ── Agent pipeline (educator mode) ────────────────────────────────────────
 
-export type Language = "en" | "ms" | "zh" | "ta";
+export type Language = "en" | "ms" | "zh" | "ta" | "rojak";
 
 export interface Pocket {
   id: number;
@@ -300,6 +346,8 @@ export interface PocketsResponse {
   learning_objectives: string[];
   vocabulary: { term: string; definition: string }[];
   pockets: Pocket[];
+  truncated?: boolean;
+  lang?: string;
 }
 
 export interface ADHDSlide {
@@ -437,7 +485,13 @@ export interface AgentStudentObserverResponse {
 export interface IlmuistResponse {
   message: string;
   suggestions: string[];
+  actions?: IlmAssistantAction[];
 }
+
+export type AppChatContext = {
+  appPage?: "landing" | "student" | "educator";
+  appContext?: string;
+};
 
 export const agentDyslexiaSlides = (fileId: string, lang: Language = "en") =>
   request<AgentSlidesResponse>("/api/agents/dyslexia-slides", {
@@ -484,15 +538,55 @@ export const studentChatAction = (
     body: JSON.stringify({ file_id: fileId, action, lang, mood }),
   });
 
+export type EducatorChatContext = {
+  filename?: string;
+  topic?: string;
+  pocketCount?: number;
+  generatedOutputs?: string[];
+};
+
 export const agentIlmuist = (
   message: string,
   history: { role: string; content: string }[] = [],
   fileId?: string,
-  role: "teacher" | "student" = "teacher"
+  role: "teacher" | "student" = "teacher",
+  lang: Language = "en",
+  app?: AppChatContext
 ) =>
   request<IlmuistResponse>("/api/agents/ilmuist", {
     method: "POST",
-    body: JSON.stringify({ message, history, file_id: fileId, role }),
+    body: JSON.stringify({
+      message,
+      history,
+      file_id: fileId,
+      role,
+      lang,
+      app_page: app?.appPage ?? (role === "teacher" ? "educator" : "student"),
+      app_context: app?.appContext ?? "",
+    }),
+  });
+
+/** Educator-mode Ilm — same ILMU endpoint, richer session context */
+export const agentEducatorChat = (
+  message: string,
+  history: { role: string; content: string }[] = [],
+  opts: { fileId?: string; lang?: Language } & EducatorChatContext & AppChatContext = {}
+) =>
+  request<IlmuistResponse>("/api/agents/ilmuist", {
+    method: "POST",
+    body: JSON.stringify({
+      message,
+      history,
+      file_id: opts.fileId,
+      role: "teacher",
+      lang: opts.lang ?? "en",
+      filename: opts.filename,
+      topic: opts.topic,
+      pocket_count: opts.pocketCount,
+      generated_outputs: opts.generatedOutputs ?? [],
+      app_page: opts.appPage ?? "educator",
+      app_context: opts.appContext ?? "",
+    }),
   });
 
 // ── Student pipeline types ─────────────────────────────────────────────────

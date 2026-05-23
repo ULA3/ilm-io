@@ -8,8 +8,7 @@ import {
   exportHtmlAsPng,
 } from "@/lib/export-document";
 import { trackEvent } from "@/lib/track";
-
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { apiUrl } from "@/lib/api-base";
 
 type Props = {
   title: string;
@@ -29,7 +28,7 @@ export function DownloadBar({ title, pptxUrl, htmlBody, accentColor = "#5e7d5c",
     const topic = trackTopic ?? title;
     if (fmt === "pptx" && pptxUrl) {
       trackEvent("download", { topic, format: "pptx" });
-      window.location.href = `${BASE}${pptxUrl}`;
+      window.location.href = apiUrl(pptxUrl);
       return;
     }
     if (!htmlBody) return;

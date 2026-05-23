@@ -17,6 +17,12 @@ from typing import Any
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from services.llm_client import client as _client, MODEL as _MODEL
+from services.lang_prefs import (
+    LANGUAGE_NAMES as _LANGUAGE_NAMES,
+    chat_lang_instruction,
+    lang_instruction as _lang_instruction,
+    reply_language_note,
+)
 
 
 # ── Shared helpers ─────────────────────────────────────────────────────────
@@ -227,10 +233,16 @@ Examples: {{"label": "Best focus time", "value": "Morning sessions", "trend": "s
 # ── Chatbot ────────────────────────────────────────────────────────────────
 
 _MOOD_PREFIX = {
-    "tired":   "The student is currently tired. Use shorter sentences — max one sentence per point. Be extra gentle and add more encouragement. Reduce content by 50%.",
-    "stressed": "The student is currently stressed. Be especially warm. Keep replies very short. Lead with empathy before any explanation.",
-    "good":    "The student is in a good mood. Normal pacing is fine.",
-    "okay":    "",
+    "tired": (
+        "They sound tired right now. Reply like a gentle friend: very short, soft, "
+        "no pressure. One idea at a time. 'Rest dulu also okay' energy."
+    ),
+    "stressed": (
+        "They're stressed. Lead with empathy ('aiyoo I get it lah'). "
+        "Don't dump info. Calm, human, maybe one tiny next step only."
+    ),
+    "good": "They're in a good mood — you can be a bit more playful and upbeat.",
+    "okay": "",
 }
 
 
@@ -240,83 +252,98 @@ def chat_response(
     history: list[dict],
     context_text: str = "",
     mood: str = "okay",
+    lang: str = "en",
+    app_context: str = "",
+    app_page: str = "student",
 ) -> dict:
-    """Returns {message: str, suggestions: list[str]}. Single LLM call."""
+    """Returns {message, suggestions, actions}. Single LLM call."""
+    from services.app_guide import format_app_context
+
+    guide = format_app_context(app_page, app_context)
     mood_instr = _MOOD_PREFIX.get(mood, "")
     mood_prefix = f"{mood_instr}\n\n" if mood_instr else ""
 
     if role == "student":
         system = (
             f"{mood_prefix}"
-            "Your name is Ilm. You are a warm, friendly Malaysian learning companion for "
-            "students — especially those with ADHD, dyslexia, or autism.\n\n"
-            "Your personality: You talk like a Malaysian friend — relaxed, warm, a bit playful. "
-            "Use natural Manglish where it fits: 'lah', 'ah', 'kan', 'boleh', 'okay what'. "
-            "Don't force it — keep it natural, like how a friendly Malaysian older sibling talks.\n\n"
-            "Rules:\n"
-            "- Never tell the student they are wrong. Say 'eh let me explain it differently lah'.\n"
-            "- Max 3 short bullet points per reply. Each bullet max 12 words.\n"
-            "- When the student seems frustrated, respond with empathy first ('aiyoh, I understand lah').\n"
-            "- End with ONE short encouraging sentence.\n"
-            "- Always reply in the same language the student used (EN/BM/ZH/TA).\n\n"
-            'Reply ONLY in JSON: {"message": "<your reply>", "suggestions": ["<follow-up q 1>", "<follow-up q 2>"]}'
+            "You are Ilm — a real Malaysian study buddy on ilm.io, NOT a corporate chatbot.\n\n"
+            "VOICE (this matters most):\n"
+            "- Talk like WhatsApp with a supportive kakak/abang: warm, casual, human.\n"
+            "- Use Manglish naturally when it fits: lah, lor, kan, eh, aiyoo, boleh, okay what.\n"
+            "- React to what they said first ('wah good question', 'aiyoo that part confusing kan').\n"
+            "- Write in flowing sentences. NO bullet lists unless they asked for steps.\n"
+            "- Short is fine (1–3 sentences). Emoji sparingly (0–1), never every line.\n"
+            "- Never sound like a textbook, FAQ, or 'As an AI assistant...'.\n"
+            "- Never say you're an AI or language model.\n"
+            "- If they're wrong, never shame them: 'eh almost there, try think of it like this...'\n"
+            f"{chat_lang_instruction(lang)}\n\n"
+            "GOOD example message:\n"
+            '"Aiyoo photosynthesis again 😅 Okay think of it like your phone charging — '
+            "leaf kena sunlight, then buat sugar. That's the main story lah. "
+            'Want me to go deeper on the Calvin part?"\n\n'
+            "BAD (robotic — never do this):\n"
+            '"Here are three key points: • Point 1 • Point 2 • Point 3. '
+            'I hope this helps! Let me know if you need anything else."\n\n'
+            "You ALSO help use the ilm.io app: Controls panel (left), language, music, dark mode, "
+            "mood, focus mode, upload — use the APP GUIDE below.\n\n"
+            + guide
+            + "\n\nsuggestions = 2 casual follow-ups (max 6 words each). "
+            "actions = 0-2 UI buttons when user wants a setting changed; each "
+            '{"id": "<allowed id>", "label": "<short label>"}; else [].\n\n'
+            'Reply ONLY valid JSON: {"message": "...", "suggestions": ["...", "..."], "actions": []}'
         )
     else:
         system = (
             f"{mood_prefix}"
-            "Your name is Ilm. You are an expert educational advisor specialising in "
-            "neurodivergent teaching strategies for Malaysian classrooms. "
-            "Give evidence-based, practical advice. Reference conditions (ADHD, dyslexia, autism) "
-            "when relevant. Be concise and professional. Use Malaysian educational context: "
-            "KSSM, Sekolah Kebangsaan, OKU, Bank Islam, DuitNow.\n\n"
-            "When explaining concepts use bullet points (•) rather than long paragraphs. "
-            "Max 3 bullets per reply. Keep each bullet under 12 words.\n\n"
-            'Reply ONLY in JSON: {"message": "<your reply>", "suggestions": ["<follow-up q 1>", "<follow-up q 2>"]}'
+            "You are Ilm Educator — an expert educational advisor on ilm.io, powered by YTL ILMU AI (Malaysia).\n\n"
+            "Help teachers with neurodivergent-inclusive strategies (ADHD, dyslexia, autism), "
+            "ilm.io features (Reader pockets, slide formats, worksheets, Student Observer), "
+            "and Malaysian classroom context (KSSM, SK/SMK, OKU, PdPR).\n\n"
+            "Tone: warm, professional, practical — like a trusted senior colleague, not a student chatbot.\n"
+            "Use bullet points (•) when listing steps. Max 3 bullets, each under 12 words.\n"
+            f"{chat_lang_instruction(lang)}\n\n"
+            + guide
+            + '\n\nReply ONLY in JSON: {"message": "...", "suggestions": ["...", "..."], "actions": []}'
         )
 
     messages: list[dict] = [{"role": "system", "content": system}]
     if context_text:
         messages.append({"role": "user",      "content": f"[Document context]\n{context_text[:2000]}"})
-        messages.append({"role": "assistant", "content": "I've read the document. How can I help?"})
+        messages.append({
+            "role": "assistant",
+            "content": "Okay I've scanned your notes already. Tanya je what you stuck on — I'll explain like we're study buddies, not lecture hall 😊",
+        })
     for m in history[-10:]:
         messages.append({"role": m["role"], "content": m["content"]})
     messages.append({"role": "user", "content": message})
 
+    chat_temp = 0.88 if role == "student" else 0.5
     resp = _client.chat.completions.create(
         model=_MODEL,
-        max_tokens=500,
+        max_tokens=450,
         messages=messages,
-        temperature=0.5,
+        temperature=chat_temp,
     )
     raw = resp.choices[0].message.content or ""
     try:
         result = _parse_json(raw)
+        actions = result.get("actions", [])
+        if not isinstance(actions, list):
+            actions = []
+        clean_actions = []
+        for a in actions[:2]:
+            if isinstance(a, dict) and a.get("id"):
+                clean_actions.append({
+                    "id": str(a["id"]),
+                    "label": str(a.get("label", a["id"]))[:48],
+                })
         return {
             "message":     result.get("message", raw),
             "suggestions": result.get("suggestions", []),
+            "actions":     clean_actions,
         }
     except Exception:
-        return {"message": raw, "suggestions": []}
-
-
-# ── Language support (mirrored from agent_service for standalone use) ─────
-
-_LANGUAGE_NAMES = {
-    "en": "English",
-    "ms": "Bahasa Melayu",
-    "zh": "Mandarin Chinese (Simplified)",
-    "ta": "Tamil",
-}
-
-def _lang_instruction(lang: str) -> str:
-    name = _LANGUAGE_NAMES.get(lang, "English")
-    if lang == "en":
-        return ""
-    return (
-        f"\n\nIMPORTANT: Generate ALL output text (titles, explanations, examples, takeaways) "
-        f"in {name}. JSON keys must remain in English. "
-        f"Only the string values should be in {name}."
-    )
+        return {"message": raw, "suggestions": [], "actions": []}
 
 
 # ── Worksheet answer checker ───────────────────────────────────────────────
@@ -329,8 +356,7 @@ def check_worksheet_answer(
     lang: str = "en",
 ) -> dict:
     """Check a student's short-answer worksheet response. Returns {correct, feedback, suggestion}."""
-    lang_name = _LANGUAGE_NAMES.get(lang, "English")
-    lang_instr = f"Reply in {lang_name}." if lang != "en" else "Reply in English."
+    lang_instr = reply_language_note(lang)
     system = (
         "You are Ilm, a warm Malaysian AI tutor checking a student's worksheet answer. "
         "Be encouraging — never harsh. If the answer is partly right, acknowledge what's correct. "

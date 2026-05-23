@@ -31,3 +31,4 @@ httpx>=0.26,<0.28          # supabase 2.10 requires <0.28; openai + elevenlabs a
 aiofiles==24.1.0
 tenacity==9.0.0            # Retry logic for AI calls
 structlog==24.4.0          # Structured logging
+pytest==8.3.4              # Unit tests

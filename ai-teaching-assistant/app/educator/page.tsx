@@ -1,19 +1,38 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import * as api from "@/lib/api";
 import type {
   StudentProfile, WeeklyReport,
   PocketsResponse, ADHDSlide, AutismSlide, DyslexiaSlide, TranscribeResponse,
   AgentSlidesResponse, Language, HeatmapCell,
-  AgentWorksheetResponse, AgentQuizResponse, IlmuistResponse,
+  AgentWorksheetResponse, AgentQuizResponse, StudentObserverResult,
 } from "@/lib/api";
+import { EducatorIlmChat } from "@/app/components/EducatorIlmChat";
+import { ILM_ASSISTANT_PAGE_EVENT } from "@/lib/ilm-assistant-actions";
 import { TranslatingOverlay } from "@/app/components/TranslatingOverlay";
 import { trackEvent, DEMO_STUDENT_ID } from "@/lib/track";
+import { DEMO_CLASS_ROSTER } from "@/lib/demo-class";
+import { SlideVisual } from "@/app/components/SlideVisual";
+import {
+  recommendedFormatForCondition,
+  educatorOutputButtonClass,
+} from "@/lib/ilm-formats";
+import { getEducatorOutputOptions, getFormatLabel } from "@/lib/localized-formats";
+import { FORMAT_COPY } from "@/lib/ui-strings-formats";
+import { useIlmLanguage } from "@/lib/ilm-language";
+import { useUiStrings } from "@/lib/use-ui-strings";
+import { IlmLanguageSelect } from "@/app/components/ilm/IlmLanguageSelect";
+import { SimplePocketList } from "@/app/components/SimplePocketList";
+import { FormatBadge } from "@/app/components/ilm/FormatBadge";
+import { IlmLogo } from "@/app/components/ilm/IlmLogo";
+import { EducatorSidebar } from "@/app/components/EducatorSidebar";
 
-/* ── Constants ───────────────────────────────────────────── */
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const EDUCATOR_SIDEBAR_KEY = "ilmio_educator_sidebar";
+
+/* Constants */
+import { apiFetchHeaders, apiUrl } from "@/lib/api-base";
 
 function dlBlob(content: string, filename: string) {
   const blob = new Blob([content], { type: "text/html;charset=utf-8" });
@@ -75,144 +94,18 @@ ${questions.map((q,i) => `<div class="q">
 </body></html>`;
 }
 
-const LANGUAGES: { code: Language; label: string; flag: string }[] = [
-  { code: "en", label: "English",       flag: "🇬🇧" },
-  { code: "ms", label: "Bahasa Melayu", flag: "🇲🇾" },
-  { code: "zh", label: "普通话",         flag: "🇨🇳" },
-  { code: "ta", label: "தமிழ்",          flag: "🇮🇳" },
-];
 
 const KIND_DIFFICULTY: Record<string, number> = {
   adhd_slides: 3, autism_slides: 3, transcribe: 2,
 };
 
-/* ── Pipeline step type ─────────────────────────────────── */
+/* Pipeline step type */
 type PipelineStep = "idle" | "uploading" | "reading" | "ready" | "generating" | "done" | "error";
 
-/* ── Chat bubble text renderer — handles bullet points ─────── */
-function ChatText({ text }: { text: string }) {
-  const lines = text.split("\n");
-  return (
-    <>
-      {lines.map((line, i) => {
-        const trimmed = line.trimStart();
-        if (trimmed.startsWith("•") || trimmed.startsWith("-")) {
-          const content = trimmed.slice(1).trim();
-          return (
-            <div key={i} className="flex items-start gap-1.5 mt-1 pl-1">
-              <span className="shrink-0 mt-0.5 opacity-60 text-[11px]">•</span>
-              <span>{content}</span>
-            </div>
-          );
-        }
-        if (trimmed === "") return <div key={i} className="h-1" />;
-        return <div key={i}>{line}</div>;
-      })}
-    </>
-  );
-}
 
-
-/* ── Ilmuist — context-aware Manglish AI guide ───────────── */
-function Ilmuist({ fileId }: { fileId: string | null }) {
-  const [open, setOpen]               = useState(false);
-  const [msgs, setMsgs]               = useState<{ from: string; text: string }[]>([
-    { from: "bot", text: "Aiyooo, selamat datang lah! 👋 I'm ilmuist — your teaching kaki here. Got any questions about your students or the slides, just tanya je lah!" },
-  ]);
-  const [history, setHistory]         = useState<{ role: string; content: string }[]>([]);
-  const [input, setInput]             = useState("");
-  const [thinking, setThinking]       = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const bottomRef                     = useRef<HTMLDivElement>(null);
-  const chatTracked                   = useRef(false);
-
-  useEffect(() => {
-    if (open && !chatTracked.current) {
-      chatTracked.current = true;
-      trackEvent("chatbot_open", { topic: "ilmuist educator chat" });
-    }
-  }, [open]);
-
-  async function send(text?: string) {
-    const msg = (text ?? input).trim();
-    if (!msg || thinking) return;
-    setInput("");
-    const newHistory = [...history, { role: "user", content: msg }];
-    setHistory(newHistory);
-    setMsgs(m => [...m, { from: "user", text: msg }]);
-    setThinking(true); setSuggestions([]);
-    try {
-      const res: IlmuistResponse = await api.agentIlmuist(msg, history, fileId ?? undefined);
-      setMsgs(m => [...m, { from: "bot", text: res.message }]);
-      setHistory(h => [...h, { role: "assistant", content: res.message }]);
-      setSuggestions(res.suggestions ?? []);
-    } catch {
-      setMsgs(m => [...m, { from: "bot", text: "Alamak, something went wrong lah… Try again boleh?" }]);
-    } finally {
-      setThinking(false);
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
-    }
-  }
-
-  return (
-    <>
-      <button onClick={() => setOpen(o => !o)} aria-label="Ilmuist AI guide"
-        className="fixed bottom-5 right-5 sm:bottom-7 sm:right-7 w-14 h-14 bg-terra rounded-full shadow-lg flex items-center justify-center text-2xl hover:bg-terra-hi transition-colors z-50">
-        {open ? "✕" : "🦜"}
-      </button>
-      {open && (
-        <div className="fixed bottom-24 right-4 left-4 sm:left-auto sm:right-7 sm:w-84 bg-parch rounded-2xl shadow-2xl border border-sand-mid flex flex-col z-50" style={{ height: 500, maxWidth: 340 }}>
-          <div className="bg-terra rounded-t-2xl px-4 py-3 flex items-center gap-3 shrink-0">
-            <div className="w-9 h-9 bg-white/20 rounded-full flex items-center justify-center text-lg">🦜</div>
-            <div>
-              <p className="text-white font-bold text-sm">ilmuist</p>
-              <p className="text-white/70 text-xs">Context-aware • Manglish-fluent</p>
-            </div>
-            {fileId && <span className="ml-auto text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full">Doc loaded ✓</span>}
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
-            {msgs.map((m, i) => (
-              <div key={i} className={`flex ${m.from === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[84%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${m.from === "user" ? "bg-terra text-white rounded-tr-sm" : "bg-sand text-bark-deep rounded-tl-sm"}`}><ChatText text={m.text} /></div>
-              </div>
-            ))}
-            {thinking && (
-              <div className="flex justify-start">
-                <div className="bg-sand rounded-2xl px-4 py-3 flex gap-1">
-                  {[0, 1, 2].map(i => <span key={i} className="w-1.5 h-1.5 bg-terra rounded-full animate-pulse" style={{ animationDelay: `${i * 150}ms` }} />)}
-                </div>
-              </div>
-            )}
-            <div ref={bottomRef} />
-          </div>
-          {suggestions.length > 0 && (
-            <div className="px-3 pb-2 flex flex-wrap gap-1.5">
-              {suggestions.map((s, i) => (
-                <button key={i} onClick={() => send(s)}
-                  className="text-[11px] bg-terra-lo text-terra-hi px-3 py-1 rounded-full hover:bg-terra-mid transition-colors font-medium">
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="p-3 border-t border-sand-mid flex gap-2 shrink-0">
-            <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && send()}
-              placeholder="Tanya anything lah…"
-              className="flex-1 bg-sand rounded-xl px-3 py-2 text-sm text-bark-deep placeholder-bark-faint focus:outline-none focus:ring-2 focus:ring-terra" />
-            <button onClick={() => send()} className="w-9 h-9 bg-terra rounded-xl flex items-center justify-center text-white hover:bg-terra-hi transition-colors shrink-0">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-/* ── Upload Zone ─────────────────────────────────────────── */
+/* Upload Zone */
 function UploadZone({ onFile, disabled }: { onFile: (fileId: string, name: string) => void; disabled?: boolean }) {
+  const ui = useUiStrings();
   const [dragging, setDragging]   = useState(false);
   const [uploaded, setUploaded]   = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -226,7 +119,7 @@ function UploadZone({ onFile, disabled }: { onFile: (fileId: string, name: strin
       setUploaded(file.name);
       onFile(res.file_id, file.name);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
+      setError(e instanceof Error ? e.message : ui.educator.uploadFailed);
     } finally { setUploading(false); }
   }
 
@@ -234,20 +127,21 @@ function UploadZone({ onFile, disabled }: { onFile: (fileId: string, name: strin
     <div onDragOver={e => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
       onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) accept(f); }}
+      id="ilm-educator-upload"
       onClick={() => !uploading && !disabled && ref.current?.click()}
-      className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all ${dragging ? "border-terra bg-terra-lo" : "border-sand-mid hover:border-terra hover:bg-terra-lo"} ${uploading || disabled ? "opacity-60 cursor-wait" : "cursor-pointer"}`}>
+      className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all scroll-mt-24 ${dragging ? "border-terra bg-terra-lo" : "border-sand-mid hover:border-terra hover:bg-terra-lo"} ${uploading || disabled ? "opacity-60 cursor-wait" : "cursor-pointer"}`}>
       <input ref={ref} type="file" accept=".pdf,.mp3,.wav,.jpg,.jpeg,.png,.docx"
         onChange={e => { const f = e.target.files?.[0]; if (f) accept(f); }} className="hidden" />
       {uploading ? (
         <div className="space-y-2">
           <div className="w-10 h-10 border-2 border-terra border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-bark-soft text-sm">Uploading…</p>
+          <p className="text-bark-soft text-sm">{ui.educator.uploadUploading}</p>
         </div>
       ) : uploaded ? (
         <div className="space-y-1.5">
           <div className="w-10 h-10 bg-terra-lo rounded-xl flex items-center justify-center mx-auto text-terra-hi text-lg">✓</div>
           <p className="font-semibold text-terra-hi text-sm">{uploaded}</p>
-          <p className="text-bark-faint text-xs">Click to replace</p>
+          <p className="text-bark-faint text-xs">{ui.educator.uploadReplace}</p>
         </div>
       ) : (
         <div className="space-y-2.5">
@@ -257,8 +151,8 @@ function UploadZone({ onFile, disabled }: { onFile: (fileId: string, name: strin
             </svg>
           </div>
           <div>
-            <p className="font-semibold text-bark-deep text-sm">Drop class material here</p>
-            <p className="text-bark-faint text-xs mt-0.5">PDF · DOCX · MP3 · WAV · JPG · PNG</p>
+            <p className="font-semibold text-bark-deep text-sm">{ui.educator.uploadDrop}</p>
+            <p className="text-bark-faint text-xs mt-0.5">{ui.educator.uploadTypes}</p>
           </div>
         </div>
       )}
@@ -267,7 +161,7 @@ function UploadZone({ onFile, disabled }: { onFile: (fileId: string, name: strin
   );
 }
 
-/* ── Pocket card ─────────────────────────────────────────── */
+/* Pocket card */
 function PocketCard({ pocket }: { pocket: api.Pocket }) {
   const [expanded, setExpanded] = useState(false);
   const typeColors: Record<string, string> = {
@@ -315,7 +209,7 @@ function PocketCard({ pocket }: { pocket: api.Pocket }) {
   );
 }
 
-/* ── Bionic Reading — bold first 1-3 chars per word as fixation anchors ── */
+/* Bionic Reading — bold first 1-3 */
 function bionicN(len: number): number {
   if (len <= 3) return 1;
   if (len <= 6) return 2;
@@ -340,7 +234,7 @@ function Bionic({ text, className = "" }: { text: string; className?: string }) 
   );
 }
 
-/* ── Canva-style rich slide colour themes (shared by all panels) ── */
+/* Canva-style rich slide colour themes (shared */
 const CANVA: Record<string, {
   header: string; headerText: string; content: string;
   accent: string; bubble1: string; bubble2: string;
@@ -367,7 +261,7 @@ function FmtPicker({ fmt, setFmt, downloadUrl, accentColor }: {
         ))}
       </div>
       {fmt === "pptx"
-        ? <a href={`${BASE}${downloadUrl}`} download
+        ? <a href={apiUrl(downloadUrl)} download
             className="flex items-center gap-1.5 text-white px-4 py-2 rounded-xl text-xs font-bold hover:opacity-80 transition-opacity"
             style={{ backgroundColor: accentColor }}>
             ⬇ Download
@@ -380,7 +274,7 @@ function FmtPicker({ fmt, setFmt, downloadUrl, accentColor }: {
   );
 }
 
-/* ── ADHD / Focus Slides result ──────────────────────────── */
+/* ADHD */
 function ADHDSlidesPanel({ result }: { result: AgentSlidesResponse }) {
   const [fmt, setFmt] = useState<"pptx"|"pdf"|"png">("pptx");
   const slides = result.slides as ADHDSlide[];
@@ -415,6 +309,9 @@ function ADHDSlidesPanel({ result }: { result: AgentSlidesResponse }) {
             </div>
             <div className="h-1.5" style={{ background:`linear-gradient(to right,${t.header}99,transparent)` }} />
             <div className="px-6 py-4 space-y-3" style={{ background: t.content }}>
+              {(s.visual_hint || s.title) && (
+                <SlideVisual visualHint={s.visual_hint} title={s.title} topic={result.topic} variant="banner" />
+              )}
               {s.focus_question && (
                 <div className="rounded-xl px-4 py-3 flex items-center gap-2.5" style={{ background: t.qBg }}>
                   <span className="text-lg shrink-0">🎯</span>
@@ -440,7 +337,7 @@ function ADHDSlidesPanel({ result }: { result: AgentSlidesResponse }) {
   );
 }
 
-/* ── Clear & Calm Slides result ──────────────────────────── */
+/* Clear & Calm Slides result */
 function AutismSlidesPanel({ result }: { result: AgentSlidesResponse }) {
   const [fmt, setFmt] = useState<"pptx"|"pdf"|"png">("pptx");
   const slides = result.slides as AutismSlide[];
@@ -473,6 +370,14 @@ function AutismSlidesPanel({ result }: { result: AgentSlidesResponse }) {
             </div>
           </div>
           <div className="bg-white p-5 space-y-3">
+            {(s.visual_description || s.heading) && (
+              <SlideVisual
+                visualDescription={s.visual_description}
+                title={s.heading}
+                topic={result.topic}
+                variant="banner"
+              />
+            )}
             <div className="flex items-start gap-3 bg-[#E8EAF6] rounded-xl px-4 py-3">
               <span className="text-[#1A237E] font-black text-[10px] uppercase tracking-wider shrink-0 mt-0.5 w-9">What</span>
               <p className="text-bark-deep text-sm leading-relaxed"><Bionic text={s.what} /></p>
@@ -494,9 +399,6 @@ function AutismSlidesPanel({ result }: { result: AgentSlidesResponse }) {
                 <p className="text-bark-soft text-xs leading-relaxed">{s.why_it_matters}</p>
               </div>
             )}
-            {s.visual_description && (
-              <div className="bg-[#F5F5F5] rounded-xl px-3 py-2 text-xs text-bark-faint italic">[ Visual ] {s.visual_description}</div>
-            )}
           </div>
         </div>
       ))}
@@ -504,7 +406,7 @@ function AutismSlidesPanel({ result }: { result: AgentSlidesResponse }) {
   );
 }
 
-/* ── Easy Read Slides result (Dyslexia) ──────────────────── */
+/* Easy Read Slides result (Dyslexia) */
 function DyslexiaSlidesPanel({ result }: { result: AgentSlidesResponse }) {
   const [fmt, setFmt] = useState<"pptx"|"pdf"|"png">("pptx");
   const slides = result.slides as DyslexiaSlide[];
@@ -535,6 +437,9 @@ function DyslexiaSlidesPanel({ result }: { result: AgentSlidesResponse }) {
           <div className="h-1.5 bg-gradient-to-r from-[#1A5C96] to-transparent" />
           {/* Content — extra generous spacing for readability */}
           <div className="bg-[#FAF8F5] px-6 py-5 space-y-4">
+            {(s.visual_hint || s.title) && (
+              <SlideVisual visualHint={s.visual_hint} title={s.title} topic={result.topic} variant="banner" />
+            )}
             <ul className="space-y-3">
               {(s.bullets ?? []).map((b, j) => (
                 <li key={j} className="flex items-start gap-3 text-base text-[#1C1C1C] leading-relaxed">
@@ -549,9 +454,6 @@ function DyslexiaSlidesPanel({ result }: { result: AgentSlidesResponse }) {
                 <p className="font-black text-[#1C1C1C] text-lg">{s.key_phrase}</p>
               </div>
             )}
-            {s.visual_hint && (
-              <div className="text-[#707070] text-sm italic">[ Image ] {s.visual_hint}</div>
-            )}
             {s.reading_note && (
               <div className="bg-[#E8F4FD] rounded-xl px-4 py-3 text-[#1A5C96] text-sm font-medium">
                 📖 {s.reading_note}
@@ -564,7 +466,7 @@ function DyslexiaSlidesPanel({ result }: { result: AgentSlidesResponse }) {
   );
 }
 
-/* ── Transcribe result ───────────────────────────────────── */
+/* Transcribe result */
 function TranscribePanel({ result }: { result: TranscribeResponse }) {
   const { script, estimated_duration_minutes, word_count, audio_url } = result;
   const [activeSegment, setActive] = useState<number | null>(null);
@@ -574,7 +476,7 @@ function TranscribePanel({ result }: { result: TranscribeResponse }) {
     if (!audio_url || downloading) return;
     setDownloading(true);
     try {
-      const res = await fetch(`${BASE}${audio_url}`);
+      const res = await fetch(apiUrl(audio_url), { headers: apiFetchHeaders() });
       if (!res.ok) throw new Error("Download failed");
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
@@ -660,14 +562,16 @@ function TranscribePanel({ result }: { result: TranscribeResponse }) {
   );
 }
 
-/* ── Pipeline Step Indicator ─────────────────────────────── */
+/* Pipeline Step Indicator */
 function PipelineIndicator({ step }: { step: PipelineStep }) {
+  const ui = useUiStrings();
+  const ps = ui.student.pipelineSteps;
   const steps = [
-    { key: "uploading", label: "Upload" },
-    { key: "reading",   label: "Read" },
-    { key: "ready",     label: "Select" },
-    { key: "generating", label: "Generate" },
-    { key: "done",      label: "Done" },
+    { key: "uploading", label: ps.upload },
+    { key: "reading", label: ps.read },
+    { key: "ready", label: ps.select },
+    { key: "generating", label: ps.generate },
+    { key: "done", label: ps.done },
   ];
   const idx = steps.findIndex(s =>
     s.key === step || (step === "error" && s.key === "generating")
@@ -685,20 +589,21 @@ function PipelineIndicator({ step }: { step: PipelineStep }) {
             {i < idx && <span>✓</span>}
             <span>{s.label}</span>
           </div>
-          {i < steps.length - 1 && <span className={`text-xs ${i < idx ? "text-sage" : "text-sand-mid"}`}>›</span>}
+          {i < steps.length - 1 && <span className={`text-xs ${i < idx ? "text-sage" : "text-sand-mid"}`} aria-hidden>›</span>}
         </div>
       ))}
     </div>
   );
 }
 
-/* ── Page ────────────────────────────────────────────────── */
+/* Page */
 export default function EducatorDashboard() {
   const [fileId, setFileId]             = useState<string | null>(null);
   const [fileName, setFileName]         = useState<string>("");
-  const [lang, setLang]                 = useState<Language>("en");
+  const { lang } = useIlmLanguage();
+  const ui = useUiStrings();
   const [step, setStep]                 = useState<PipelineStep>("idle");
-  const [sidebarOpen, setSidebarOpen]   = useState(false);
+  const [sidebarOpen, setSidebarOpen]   = useState(true);
   const [pockets, setPockets]           = useState<PocketsResponse | null>(null);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
 
@@ -712,11 +617,8 @@ export default function EducatorDashboard() {
   const [genMessage, setGenMessage]               = useState(0);
   const [truncatedWarning, setTruncatedWarning]   = useState(false);
 
-  const GEN_MESSAGES = [
-    "Reading your document…",
-    "Adapting for your learning style…",
-    "Almost ready…",
-  ];
+  const GEN_MESSAGES = ui.educator.genMessages;
+  const EDUCATOR_OUTPUT_OPTIONS = getEducatorOutputOptions(lang);
 
   // Curious Critic
   type CriticKind = "worksheet" | "quiz";
@@ -729,25 +631,104 @@ export default function EducatorDashboard() {
 
   // Sidebar
   const [students, setStudents]         = useState<StudentProfile[]>([]);
+  const [studentsSource, setStudentsSource] = useState<"api" | "demo">("demo");
   const [reports, setReports]           = useState<WeeklyReport[]>([]);
+  const [reportGenerating, setReportGenerating] = useState(false);
+  const [reportError, setReportError]   = useState<string | null>(null);
   const [bars, setBars]                 = useState<{ label: string; value: number; color: string }[]>([]);
   const [expandedStudent, setExpanded]  = useState<string | null>(null);
   const [heatmapCells, setHeatmapCells] = useState<HeatmapCell[]>([]);
   const [sessionEvents, setSessionEvents] = useState<{ topic: string; difficulty: number }[]>([]);
+
+  const generatedOutputs = useMemo(() => {
+    const out: string[] = [];
+    if (adhdResult) out.push("ADHD slides");
+    if (autismResult) out.push("Autism slides");
+    if (dyslexiaResult) out.push("Dyslexia slides");
+    if (transcribeResult) out.push("Audio script");
+    if (worksheetResult) out.push(`Worksheet (${criticCondition})`);
+    if (quizResult) out.push(`Quiz (${criticCondition})`);
+    return out;
+  }, [adhdResult, autismResult, dyslexiaResult, transcribeResult, worksheetResult, quizResult, criticCondition]);
 
   const refreshAnalytics = useCallback(() => {
     api.getAnalyticsBars().then(setBars).catch(() => {});
     api.getHeatmap().then(r => setHeatmapCells(r.cells)).catch(() => {});
   }, []);
 
+  const setSidebar = useCallback((open: boolean) => {
+    setSidebarOpen(open);
+    try {
+      localStorage.setItem(EDUCATOR_SIDEBAR_KEY, open ? "open" : "closed");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
-    api.getStudents().then(r => setStudents(r.students)).catch(() => {});
-    api.getReports().then(setReports).catch(() => {});
+    try {
+      if (localStorage.getItem(EDUCATOR_SIDEBAR_KEY) === "closed") setSidebarOpen(false);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSidebar(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sidebarOpen, setSidebar]);
+
+  useEffect(() => {
+    if (!sidebarOpen || typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    if (mq.matches) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    const onPageAction = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id;
+      if (id === "open_class_panel") setSidebar(true);
+      else if (id === "close_class_panel") setSidebar(false);
+      else if (id === "scroll_educator_upload") {
+        document.getElementById("ilm-educator-upload")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    };
+    window.addEventListener(ILM_ASSISTANT_PAGE_EVENT, onPageAction);
+    return () => window.removeEventListener(ILM_ASSISTANT_PAGE_EVENT, onPageAction);
+  }, [setSidebar]);
+
+  useEffect(() => {
+    api.getStudents()
+      .then((r) => {
+        const list = r.students.length > 0 ? r.students : DEMO_CLASS_ROSTER;
+        setStudents(list);
+        setStudentsSource(r.students.length > 0 ? "api" : "demo");
+        setExpanded((prev) => prev ?? list[0]?.id ?? DEMO_STUDENT_ID);
+      })
+      .catch(() => {
+        setStudents(DEMO_CLASS_ROSTER);
+        setStudentsSource("demo");
+        setExpanded(DEMO_STUDENT_ID);
+      });
+    api.getReports().then(setReports).catch(() => setReports([]));
     refreshAnalytics();
   }, [refreshAnalytics]);
 
   const langMounted = useRef(false);
   const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
+  const [observerResults, setObserverResults] = useState<StudentObserverResult[] | null>(null);
+  const [observerLoading, setObserverLoading] = useState(false);
+  const [observerError, setObserverError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!langMounted.current) { langMounted.current = true; return; }
@@ -757,8 +738,12 @@ export default function EducatorDashboard() {
     const hasQuiz = !!quizResult;
     if (!hasSlides && !hasWorksheet && !hasQuiz) return;
     setTranslating(true);
+    setTranslateError(null);
     (async () => {
       try {
+        const p = await api.agentRead(fileId, lang);
+        setPockets(p);
+        setTruncatedWarning(!!p.truncated);
         if (activeOutput === "adhd") {
           const r = await api.agentADHDSlides(fileId, lang); setAdhdResult(r);
         } else if (activeOutput === "autism") {
@@ -774,8 +759,9 @@ export default function EducatorDashboard() {
         if (hasQuiz) {
           const r = await api.agentQuiz(fileId, criticCondition, lang); setQuizResult(r);
         }
-      } catch { /* keep existing output on failure */ }
-      finally { setTranslating(false); }
+      } catch (e) {
+        setTranslateError(e instanceof Error ? e.message : "Could not refresh in this language");
+      } finally { setTranslating(false); }
     })();
   }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -797,6 +783,7 @@ export default function EducatorDashboard() {
     try {
       const p = await api.agentRead(id, lang);
       setPockets(p);
+      setTruncatedWarning(!!p.truncated);
       setStep("ready");
       trackEvent("upload", { topic: p.topic, filename: name }, expandedStudent ?? DEMO_STUDENT_ID);
     } catch (e) {
@@ -806,6 +793,32 @@ export default function EducatorDashboard() {
   }
 
   // Step 3: Teacher selects output type → Orchestrator dispatches to agent
+  async function runStudentObserver() {
+    setObserverLoading(true);
+    setObserverError(null);
+    try {
+      const payload = students.map((s) => ({
+        student_id: s.id,
+        id: s.id,
+        name: s.name,
+        condition: s.condition,
+        weekly_progress: s.weekly_progress,
+        preferred_mode: s.learning_style,
+      }));
+      const events = sessionEvents.map((e) => ({
+        event_type: "slide_view",
+        topic: e.topic,
+        difficulty: e.difficulty,
+      }));
+      const r = await api.agentStudentObserver(payload, events, pockets?.topic ?? "");
+      setObserverResults(r.students);
+    } catch (e) {
+      setObserverError(e instanceof Error ? e.message : "Student Observer failed");
+    } finally {
+      setObserverLoading(false);
+    }
+  }
+
   async function generate(kind: OutputKind) {
     if (!fileId || step === "generating") return;
     setActiveOutput(kind);
@@ -840,7 +853,12 @@ export default function EducatorDashboard() {
       setStep("done");
       refreshAnalytics();
     } catch (e) {
-      setPipelineError(e instanceof Error ? e.message : "Agent generation failed");
+      const msg = e instanceof Error ? e.message : "Something went wrong";
+      setPipelineError(
+        msg.toLowerCase().includes("fetch") || msg.includes("Failed to fetch")
+          ? "Cannot reach server — start backend on port 8000 and check ILMU_API_KEY."
+          : msg
+      );
       setStep("error");
     }
   }
@@ -870,14 +888,27 @@ export default function EducatorDashboard() {
   }
 
   async function triggerReport() {
+    setReportGenerating(true);
+    setReportError(null);
     try {
       const r = await api.generateReport();
-      setReports(prev => [r, ...prev].slice(0, 5));
-      trackEvent("slide_view", { topic: "Weekly report generated", difficulty: 2 });
+      setReports((prev) => [r, ...prev.filter((x) => x.id !== r.id)].slice(0, 5));
+      trackEvent("slide_view", { topic: "Weekly report generated", difficulty: 2 }, expandedStudent ?? DEMO_STUDENT_ID);
+    } catch (e) {
+      setReportError(e instanceof Error ? e.message : "Could not generate report");
+    } finally {
+      setReportGenerating(false);
     }
-    catch { /* ignore */ }
   }
 
+  const trackedStudent = students.find((s) => s.id === expandedStudent);
+  const formatRec = useMemo(() => {
+    if (!trackedStudent) return null;
+    const rec = recommendedFormatForCondition(trackedStudent.condition);
+    if (!rec) return null;
+    const copy = FORMAT_COPY[lang]?.[rec.kind] ?? FORMAT_COPY.en[rec.kind];
+    return { ...rec, label: copy.label, shortLabel: copy.shortLabel, oneLine: copy.why };
+  }, [trackedStudent, lang]);
   const activeResult =
     activeOutput === "adhd"      ? adhdResult      :
     activeOutput === "autism"    ? autismResult    :
@@ -886,64 +917,91 @@ export default function EducatorDashboard() {
 
   return (
     <div className="min-h-screen bg-cream flex flex-col">
-      {/* ── Top bar ─────────────────────────────────────── */}
-      <header className="bg-parch border-b border-sand-mid px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3 shrink-0">
+      {/* Top bar */}
+      <header className="bg-parch border-b border-sand-mid px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3 shrink-0">
           <Link href="/" className="flex items-center gap-1.5 text-bark-soft hover:text-bark-deep transition-colors text-xs font-semibold px-2.5 py-1.5 bg-sand rounded-xl hover:bg-sand-mid shrink-0">
-            ← Home
+            {ui.nav.home}
           </Link>
           <Link href="/" className="flex items-center gap-2 group shrink-0">
-            <div className="w-8 h-8 bg-terra rounded-xl flex items-center justify-center">
-              <span className="text-white text-sm">✦</span>
-            </div>
+            <IlmLogo size="sm" variant="white-on-terra" />
             <span className="font-serif text-xl font-semibold text-bark-deep group-hover:text-terra-hi transition-colors hidden sm:inline">ilm.io</span>
-            <span className="px-2 py-0.5 bg-terra-lo text-terra-hi text-xs rounded-full font-medium hidden sm:inline">Educator</span>
+            <span className="px-2 py-0.5 bg-terra-lo text-terra-hi text-xs rounded-full font-medium hidden sm:inline">{ui.educator.mode}</span>
           </Link>
         </div>
         <div className="flex items-center gap-2 flex-1 justify-end">
-          {/* Language selector */}
-          <div className="flex items-center gap-0.5 bg-sand rounded-xl p-1">
-            {LANGUAGES.map(l => (
-              <button key={l.code} onClick={() => setLang(l.code)}
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all ${lang === l.code ? "bg-white shadow-sm text-bark-deep" : "text-bark-faint hover:text-bark-deep"}`}>
-                <span>{l.flag}</span>
-                <span className="hidden lg:inline">{l.label}</span>
-              </button>
-            ))}
+          <div className="w-40 hidden md:block">
+            <IlmLanguageSelect id="ilm-lang-educator" />
           </div>
-          <div className="hidden sm:flex items-center gap-2">
-            <div className="text-right hidden md:block">
-              <p className="font-semibold text-bark-deep text-sm">Ms. Priya Nair</p>
-              <p className="text-bark-faint text-xs">Grade 6 · Room 204</p>
-            </div>
-            <div className="w-9 h-9 bg-terra-mid rounded-full flex items-center justify-center text-lg">👩‍🏫</div>
-          </div>
-          {/* Sidebar toggle — mobile/tablet only */}
-          <button onClick={() => setSidebarOpen(o => !o)} aria-label="Toggle insights panel"
-            className="lg:hidden w-9 h-9 bg-sand rounded-xl flex items-center justify-center text-bark-deep hover:bg-sand-mid transition-colors shrink-0">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 5.25h16.5m-16.5 4.5h16.5m-16.5 4.5h16.5m-16.5 4.5h16.5" />
-            </svg>
+          <button
+            type="button"
+            onClick={() => setSidebar(!sidebarOpen)}
+            aria-expanded={sidebarOpen}
+            aria-controls="educator-class-panel"
+            aria-label={sidebarOpen ? "Hide class panel" : "Show class panel"}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 border-2 ${
+              sidebarOpen
+                ? "bg-terra-lo border-terra text-terra-hi"
+                : "bg-sand border-transparent text-bark-deep hover:bg-sand-mid"
+            }`}
+          >
+            <span className="text-base leading-none" aria-hidden>
+              👥
+            </span>
+            <span className="hidden sm:inline">{sidebarOpen ? "Hide class" : "My class"}</span>
           </button>
         </div>
       </header>
 
-      {/* ── Body ────────────────────────────────────────── */}
-      {/* Mobile sidebar overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 bg-bark-deep/30 z-30 lg:hidden"
-          onClick={() => setSidebarOpen(false)} />
-      )}
-      <div className="flex flex-1 overflow-hidden flex-col lg:flex-row">
-        {/* ── Main ───────────────────────────────────────── */}
+      {/* Body */}
+      <div
+        className={`fixed inset-0 z-30 bg-bark-deep/40 backdrop-blur-[2px] transition-opacity duration-300 lg:hidden ${
+          sidebarOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+        onClick={() => setSidebar(false)}
+        aria-hidden={!sidebarOpen}
+      />
+      <div className="flex flex-1 overflow-hidden min-h-0">
+        {/* Main */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-5 pb-24">
+          <div className="md:hidden max-w-xs pb-1">
+            <IlmLanguageSelect id="ilm-lang-educator-mobile" />
+          </div>
+          {!trackedStudent && (
+            <button
+              type="button"
+              onClick={() => setSidebar(true)}
+              className="w-full text-left bg-honey-lo border-2 border-honey rounded-2xl px-4 py-3 text-sm text-bark-deep font-semibold hover:bg-honey/30"
+            >
+              👆 {ui.educator.openClassStep}
+            </button>
+          )}
+          {trackedStudent && formatRec && (
+            <div
+              className={`rounded-2xl px-4 py-3 flex items-center gap-3 border-2 ${formatRec.theme.border} ${formatRec.theme.bgLo}`}
+            >
+              <span className="text-2xl">{trackedStudent.emoji}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-bark-deep flex items-center gap-2 flex-wrap">
+                  {trackedStudent.name}
+                  <FormatBadge kind={formatRec.kind} />
+                </p>
+                <p className="text-xs text-bark-soft">
+                  Try {formatRec.emoji} {formatRec.label} · {formatRec.oneLine}
+                </p>
+              </div>
+              <button type="button" onClick={() => setSidebar(true)} className="text-[11px] text-terra-hi font-semibold shrink-0">
+                Change
+              </button>
+            </div>
+          )}
 
           {/* Pipeline progress */}
           {step !== "idle" && (
             <div className="bg-parch rounded-2xl border border-sand-mid px-4 py-3 flex flex-wrap items-center gap-3">
               <PipelineIndicator step={step} />
-              {step === "reading" && <p className="text-bark-soft text-xs ml-auto animate-pulse">Reader Agent analysing document…</p>}
-              {step === "generating" && <p className="text-bark-soft text-xs ml-auto animate-pulse">Agent generating output…</p>}
+              {step === "reading" && <p className="text-bark-soft text-xs ml-auto animate-pulse">{ui.educator.readingFile}</p>}
+              {step === "generating" && <p className="text-bark-soft text-xs ml-auto animate-pulse">Making slides…</p>}
               {step === "done" && <p className="text-sage text-xs ml-auto font-medium">✓ Complete — {fileName}</p>}
               {step === "error" && <p className="text-terra-hi text-xs ml-auto">{pipelineError}</p>}
             </div>
@@ -951,165 +1009,105 @@ export default function EducatorDashboard() {
 
           {/* Reading loader */}
           {step === "reading" && (
-            <div className="bg-parch rounded-3xl p-8 border border-sand-mid flex flex-col items-center gap-4 animate-fade-up">
-              <div className="relative w-16 h-16 shrink-0">
-                <div className="absolute inset-0 rounded-full border-4 border-terra-lo" />
-                <div className="absolute inset-0 rounded-full border-4 border-terra border-t-transparent animate-spin" />
-                <span className="absolute inset-0 flex items-center justify-center text-2xl">📖</span>
-              </div>
-              <div className="text-center">
-                <p className="font-semibold text-bark-deep mb-1">Reader Agent is scanning your material…</p>
-                <p className="text-bark-faint text-sm leading-relaxed">Extracting concept pockets for all your agents. About 15–30 seconds.</p>
-              </div>
-              <div className="flex flex-wrap justify-center gap-2 mt-1">
-                {["Parsing document","Identifying concepts","Building pockets","Indexing vocab"].map((label, i) => (
-                  <div key={i} className="flex items-center gap-1.5 px-2.5 py-1 bg-terra-lo rounded-full">
-                    <span className="w-1.5 h-1.5 bg-terra rounded-full animate-pulse-dot" style={{ animationDelay: `${i*220}ms` }} />
-                    <span className="text-terra-hi text-[10px] font-medium">{label}</span>
-                  </div>
-                ))}
-              </div>
+            <div className="bg-parch rounded-3xl p-8 border border-sand-mid flex flex-col items-center gap-3 animate-fade-up">
+              <div className="w-14 h-14 rounded-full border-4 border-terra border-t-transparent animate-spin" />
+              <p className="font-semibold text-bark-deep">{ui.educator.readerScanTitle}</p>
+              <p className="text-bark-faint text-xs">{ui.educator.readerScanSub}</p>
             </div>
           )}
 
-          {/* Step 1: Upload + Language */}
-          <div className="bg-parch rounded-3xl p-6 border border-sand-mid">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-bark-deep">📤 Step 1 — Upload class material</h2>
-              <span className="text-xs text-bark-faint bg-sand px-2 py-1 rounded-full">Language: {LANGUAGES.find(l => l.code === lang)?.flag} {LANGUAGES.find(l => l.code === lang)?.label}</span>
+          <div className="bg-parch rounded-3xl p-5 border border-sand-mid">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-bold text-bark-deep">{ui.educator.uploadTitle}</h2>
             </div>
             <UploadZone onFile={handleUpload} disabled={step === "reading" || step === "generating"} />
           </div>
 
-          {/* Step 2: Pockets preview (Orchestrator holds this) */}
           {pockets && (
-            <div className="bg-parch rounded-3xl p-6 border border-sand-mid">
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-2 h-2 bg-sage rounded-full" />
-                <h2 className="font-semibold text-bark-deep">Step 2 — Reader Agent: Knowledge Pockets</h2>
-              </div>
-              <p className="text-bark-faint text-xs mb-4 pl-4">Orchestrator extracted {pockets.pockets.length} concepts from <span className="font-medium text-bark-deep">{pockets.topic}</span></p>
-
-              {/* Summary */}
-              <div className="bg-sand rounded-2xl p-4 mb-4">
-                <p className="text-bark-soft text-xs font-semibold uppercase tracking-wide mb-1">Summary</p>
-                <p className="text-bark-deep text-sm leading-relaxed">{pockets.summary}</p>
-              </div>
-
-              {/* Objectives */}
-              {pockets.learning_objectives.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-bark-faint text-xs font-semibold uppercase tracking-wide mb-2">Learning objectives</p>
-                  <ul className="space-y-1">
-                    {pockets.learning_objectives.map((obj, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-bark-deep">
-                        <span className="text-terra shrink-0 mt-0.5">✓</span>{obj}
-                      </li>
-                    ))}
-                  </ul>
+            <details className="bg-parch rounded-3xl border border-sand-mid group open:border-sage/40">
+              <summary className="cursor-pointer list-none p-5 font-bold text-bark-deep flex items-center gap-2 [&::-webkit-details-marker]:hidden">
+                <span className="text-sage">✓</span>
+                {pockets.pockets.length} topics ready · {pockets.topic}
+                <span className="ml-auto text-[10px] text-bark-faint font-normal">Show details</span>
+              </summary>
+              <div className="px-5 pb-5 space-y-3 border-t border-sand-mid pt-3">
+                <p className="text-sm text-bark-deep">{pockets.summary}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {pockets.vocabulary.slice(0, 8).map((v, i) => (
+                    <span key={i} className="text-[10px] bg-sand px-2 py-0.5 rounded-full text-bark-deep">
+                      {v.term}
+                    </span>
+                  ))}
                 </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  <SimplePocketList pockets={pockets.pockets} />
+                </div>
+              </div>
+            </details>
+          )}
+
+          {pockets && (
+            <div className="bg-parch rounded-3xl p-5 border border-sand-mid">
+              <h2 className="font-bold text-bark-deep mb-3">{ui.educator.pickFormat}</h2>
+
+              {formatRec && trackedStudent && (
+                <button
+                  type="button"
+                  onClick={() => generate(formatRec.kind)}
+                  disabled={step === "generating"}
+                  className={`w-full mb-4 rounded-2xl border-2 p-4 text-left hover:opacity-95 disabled:opacity-50 ${formatRec.theme.border} ${formatRec.theme.bgLo}`}
+                >
+                  <p className={`text-[10px] font-bold uppercase ${formatRec.theme.textHi}`}>
+                    {ui.educator.bestFor} {trackedStudent.name.split(" ")[0]}
+                  </p>
+                  <p className="text-lg font-bold text-bark-deep mt-1 flex items-center gap-2">
+                    <span>{formatRec.emoji}</span>
+                    {formatRec.shortLabel}
+                    <FormatBadge kind={formatRec.kind} />
+                  </p>
+                  <p className="text-xs text-bark-soft">{formatRec.oneLine}</p>
+                </button>
               )}
 
-              {/* Vocabulary chips */}
-              {pockets.vocabulary.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-bark-faint text-xs font-semibold uppercase tracking-wide mb-2">Key vocabulary</p>
-                  <div className="flex flex-wrap gap-2">
-                    {pockets.vocabulary.map((v, i) => (
-                      <span key={i} title={v.definition}
-                        className="bg-white border border-sand-mid text-bark-deep text-xs px-2.5 py-1 rounded-full cursor-default hover:bg-sand transition-colors">
-                        {v.term}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Pocket cards */}
-              <p className="text-bark-faint text-xs font-semibold uppercase tracking-wide mb-2">Concept pockets</p>
-              <div className="space-y-2">
-                {pockets.pockets.map(p => <PocketCard key={p.id} pocket={p} />)}
+              <div className="grid grid-cols-2 gap-3">
+                {EDUCATOR_OUTPUT_OPTIONS.map((opt) => {
+                  const active = activeOutput === opt.kind && step !== "idle";
+                  return (
+                    <button
+                      key={opt.kind}
+                      type="button"
+                      onClick={() => generate(opt.kind)}
+                      disabled={step === "generating"}
+                      className={`rounded-2xl p-4 text-left transition-all ${educatorOutputButtonClass(opt.kind, active)} ${
+                        step === "generating" ? "opacity-50 cursor-not-allowed" : ""
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-2xl">{opt.emoji}</span>
+                        <FormatBadge kind={opt.kind} />
+                      </div>
+                      <p className="font-bold text-sm text-bark-deep mt-2">{opt.title}</p>
+                      <p className="text-[11px] text-bark-faint line-clamp-2">{opt.sub}</p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {/* Step 3: Output selection (shown once pockets are ready) */}
-          {pockets && (
-            <div className="bg-parch rounded-3xl p-6 border border-sand-mid">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-2 h-2 bg-terra rounded-full" />
-                <h2 className="font-semibold text-bark-deep">Step 3 — Select Output Format</h2>
-              </div>
-              <p className="text-bark-faint text-xs mb-5">Orchestrator is ready. Choose which agent should generate your output:</p>
-
-              <div className="grid grid-cols-2 gap-4">
-                {/* ADHD Slides */}
-                <button onClick={() => generate("adhd")}
-                  disabled={step === "generating"}
-                  className={`rounded-3xl p-5 text-left border-2 transition-all ${
-                    activeOutput === "adhd" && step !== "idle"
-                      ? "border-dust bg-dust-lo"
-                      : "border-dust-lo bg-white hover:border-dust hover:bg-dust-lo"
-                  } ${step === "generating" ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}>
-                  <div className="w-10 h-10 bg-dust rounded-xl flex items-center justify-center text-xl mb-3">🧩</div>
-                  <p className="font-bold text-bark-deep text-sm mb-1">Focus Slides</p>
-                  <p className="text-bark-faint text-xs leading-relaxed">One idea per slide · colour-coded sections · focus hooks · timer badges</p>
-                  <span className="inline-block mt-3 text-[10px] bg-dust-lo text-dust px-2 py-0.5 rounded-full font-medium">Focus-first format</span>
-                </button>
-
-                {/* Autism Slides */}
-                <button onClick={() => generate("autism")}
-                  disabled={step === "generating"}
-                  className={`rounded-3xl p-5 text-left border-2 transition-all ${
-                    activeOutput === "autism" && step !== "idle"
-                      ? "border-honey bg-honey-lo"
-                      : "border-honey-lo bg-white hover:border-honey hover:bg-honey-lo"
-                  } ${step === "generating" ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}>
-                  <div className="w-10 h-10 bg-honey rounded-xl flex items-center justify-center text-xl mb-3">🗂️</div>
-                  <p className="font-bold text-bark-deep text-sm mb-1">Clear & Calm Slides</p>
-                  <p className="text-bark-faint text-xs leading-relaxed">Same layout on every slide · plain language · step-by-step · no surprises</p>
-                  <span className="inline-block mt-3 text-[10px] bg-honey-lo text-bark-deep px-2 py-0.5 rounded-full font-medium">Predictable format</span>
-                </button>
-
-                {/* Dyslexia Slides */}
-                <button onClick={() => generate("dyslexia")}
-                  disabled={step === "generating"}
-                  className={`rounded-3xl p-5 text-left border-2 transition-all ${
-                    activeOutput === "dyslexia" && step !== "idle"
-                      ? "border-[#1A5C96] bg-[#E8F4FD]"
-                      : "border-[#E8F4FD] bg-white hover:border-[#1A5C96] hover:bg-[#E8F4FD]"
-                  } ${step === "generating" ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}>
-                  <div className="w-10 h-10 bg-[#1A5C96] rounded-xl flex items-center justify-center text-xl mb-3">📖</div>
-                  <p className="font-bold text-bark-deep text-sm mb-1">Easy Read Slides</p>
-                  <p className="text-bark-faint text-xs leading-relaxed">Clean font · soft background · highlighted key phrases · generous spacing</p>
-                  <span className="inline-block mt-3 text-[10px] bg-[#E8F4FD] text-[#1A5C96] px-2 py-0.5 rounded-full font-medium">Reading-friendly format</span>
-                </button>
-
-                {/* Audio Transcription */}
-                <button onClick={() => generate("transcribe")}
-                  disabled={step === "generating"}
-                  className={`rounded-3xl p-5 text-left border-2 transition-all ${
-                    activeOutput === "transcribe" && step !== "idle"
-                      ? "border-sage bg-sage-lo"
-                      : "border-sage-lo bg-white hover:border-sage hover:bg-sage-lo"
-                  } ${step === "generating" ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}>
-                  <div className="w-10 h-10 bg-sage rounded-xl flex items-center justify-center text-xl mb-3">🎧</div>
-                  <p className="font-bold text-bark-deep text-sm mb-1">Audio Version + MP3</p>
-                  <p className="text-bark-faint text-xs leading-relaxed">Story-driven narrative script rendered to MP3 via TTS — download ready</p>
-                  <span className="inline-block mt-3 text-[10px] bg-sage-lo text-sage px-2 py-0.5 rounded-full font-medium">Transcriber</span>
-                </button>
-
-              </div>
+          {translateError && (
+            <div className="bg-terra-lo border border-terra rounded-2xl px-4 py-3 text-sm text-terra-hi">
+              {translateError}
             </div>
           )}
 
           {/* Truncation warning banner */}
           {truncatedWarning && (
             <div className="bg-[#FFF8E1] border border-[#FFB300] rounded-2xl px-4 py-3 flex items-start gap-3">
-              <span className="text-[#FFB300] text-lg shrink-0">⚠️</span>
+              <span className="text-[#FFB300] text-lg shrink-0">⚠️</span>
               <div className="flex-1">
-                <p className="text-bark-deep text-sm font-medium">Your document was long — we used the first part.</p>
-                <p className="text-bark-soft text-xs mt-0.5">For best results, try uploading shorter sections.</p>
+                <p className="text-bark-deep text-sm font-medium">{ui.educator.truncatedTitle}</p>
+                <p className="text-bark-soft text-xs mt-0.5">{ui.educator.truncatedSub}</p>
               </div>
               <button onClick={() => setTruncatedWarning(false)} className="text-bark-faint text-xs hover:text-bark-deep shrink-0">✕</button>
             </div>
@@ -1121,7 +1119,7 @@ export default function EducatorDashboard() {
               {translating && <TranslatingOverlay />}
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-2 h-2 bg-sage rounded-full" />
-                <h2 className="font-semibold text-bark-deep">Step 4 — Agent Output</h2>
+                <h2 className="font-bold text-bark-deep">4 · Your slides</h2>
               </div>
 
               {step === "generating" && (
@@ -1133,10 +1131,7 @@ export default function EducatorDashboard() {
                         {GEN_MESSAGES[genMessage]}
                       </p>
                       <p className="text-bark-faint text-xs">
-                        {activeOutput === "adhd"       && "Focus Slides"}
-                        {activeOutput === "autism"     && "Clear & Calm Slides"}
-                        {activeOutput === "dyslexia"   && "Easy Read Slides"}
-                        {activeOutput === "transcribe" && "Transcriber"}
+                        {activeOutput && getFormatLabel(lang, activeOutput)}
                         {" · 20–40 seconds"}
                       </p>
                     </div>
@@ -1147,7 +1142,7 @@ export default function EducatorDashboard() {
 
               {step === "error" && (
                 <div className="bg-terra-lo rounded-2xl p-4">
-                  <p className="text-terra-hi font-semibold text-sm mb-1">Agent failed</p>
+                  <p className="text-terra-hi font-semibold text-sm mb-1">Something went wrong</p>
                   <p className="text-bark-deep text-sm">{pipelineError}</p>
                   <button onClick={() => { setStep("ready"); setPipelineError(null); }}
                     className="mt-3 text-xs text-terra-hi font-medium hover:underline">← Back to selection</button>
@@ -1161,18 +1156,13 @@ export default function EducatorDashboard() {
             </div>
           )}
 
-          {/* Curious Critic — worksheets & quizzes */}
           {pockets && (
-            <div className="relative bg-parch rounded-3xl p-6 border border-sand-mid">
+            <div className="relative bg-parch rounded-3xl p-5 border border-sand-mid">
               {translating && (worksheetResult || quizResult) && <TranslatingOverlay />}
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-2 h-2 bg-dust rounded-full" />
-                <h2 className="font-semibold text-bark-deep">Curious Critic — Worksheets & Quizzes</h2>
-              </div>
-              <p className="text-bark-faint text-xs mb-5 pl-4">Generate condition-tailored activities from the same document pockets.</p>
+              <h2 className="font-bold text-bark-deep mb-3">Extra · Worksheet or quiz</h2>
 
-              <div className="flex flex-wrap items-center gap-3 mb-5">
-                <label className="text-xs font-semibold text-bark-soft shrink-0">Learning style:</label>
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                <label className="text-[11px] font-semibold text-bark-soft shrink-0">Style:</label>
                 <select value={criticCondition} onChange={e => setCriticCondition(e.target.value)}
                   className="bg-sand border border-sand-mid rounded-xl px-3 py-1.5 text-sm text-bark-deep focus:outline-none focus:ring-2 focus:ring-dust">
                   <option value="general">Standard</option>
@@ -1287,177 +1277,79 @@ export default function EducatorDashboard() {
 
         </main>
 
-        {/* ── Right sidebar ───────────────────────────────── */}
-        <aside className={`fixed lg:static inset-y-0 right-0 z-40 w-80 bg-parch border-l border-sand-mid overflow-y-auto p-5 shrink-0 space-y-5 transition-transform duration-300 ease-in-out
-          ${sidebarOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"}`}>
-          {/* Mobile close row */}
-          <div className="lg:hidden flex items-center justify-between mb-1 pb-3 border-b border-sand-mid">
-            <p className="font-semibold text-bark-deep text-sm">Insights Panel</p>
-            <button onClick={() => setSidebarOpen(false)}
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-bark-soft hover:text-bark-deep hover:bg-sand transition-colors">✕</button>
+        <aside
+          id="educator-class-panel"
+          className={`educator-class-panel flex shrink-0 h-full bg-parch border-l border-sand-mid overflow-hidden
+            fixed inset-y-0 right-0 z-40 shadow-2xl lg:static lg:shadow-none
+            transition-[width,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]
+            ${
+              sidebarOpen
+                ? "w-[min(18rem,92vw)] translate-x-0"
+                : "w-0 translate-x-full border-l-0 lg:translate-x-0 lg:w-12 lg:border-l"
+            }`}
+        >
+          {/* Collapsed rail — desktop only */}
+          <button
+            type="button"
+            onClick={() => setSidebar(true)}
+            className={`hidden lg:flex flex-col items-center justify-center gap-2 w-12 h-full shrink-0 py-6 text-terra-hi hover:bg-terra-lo/50 transition-colors ${
+              sidebarOpen ? "lg:hidden" : ""
+            }`}
+            aria-label="Open class panel"
+            tabIndex={sidebarOpen ? -1 : 0}
+          >
+            <span className="text-lg" aria-hidden>
+              👥
+            </span>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-bark-faint [writing-mode:vertical-rl] rotate-180">
+              Class
+            </span>
+            {trackedStudent && (
+              <span className="text-xl mt-2" title={trackedStudent.name}>
+                {trackedStudent.emoji}
+              </span>
+            )}
+          </button>
+
+          <div
+            className={`w-[min(18rem,92vw)] lg:w-72 h-full overflow-y-auto p-4 transition-opacity duration-200 ${
+              sidebarOpen ? "opacity-100" : "opacity-0 pointer-events-none lg:hidden"
+            }`}
+          >
+            <EducatorSidebar
+              students={students}
+              selectedId={expandedStudent}
+              onSelect={setExpanded}
+              formatRec={formatRec}
+              selectedStudent={trackedStudent ?? null}
+              heatmapCells={heatmapCells}
+              sessionTopics={sessionEvents}
+              reports={reports}
+              reportGenerating={reportGenerating}
+              reportError={reportError}
+              onGenerateReport={triggerReport}
+              onClose={() => setSidebar(false)}
+              observerResults={observerResults}
+              observerLoading={observerLoading}
+              observerError={observerError}
+              onRunObserver={runStudentObserver}
+            />
           </div>
-
-          {/* Student profiles — Student Observer */}
-          <div>
-            <p className="text-xs font-semibold text-bark-faint uppercase tracking-wider mb-3">Student Profiles · Observer</p>
-            <div className="space-y-2.5">
-              {(students.length > 0 ? students : [
-                { id: "1", name: "Alex Chen",   emoji: "🦋", condition: "ADHD",            learning_style: "Visual",      streak_days: 7,  weekly_progress: 70, insights: [], attention_trend: [], last_active: "" },
-                { id: "2", name: "Sam Rivera",  emoji: "🌻", condition: "Dyslexia",         learning_style: "Auditory",    streak_days: 3,  weekly_progress: 50, insights: [], attention_trend: [], last_active: "" },
-                { id: "3", name: "Jordan Park", emoji: "🦉", condition: "Autism Spectrum",  learning_style: "Structured",  streak_days: 12, weekly_progress: 85, insights: [], attention_trend: [], last_active: "" },
-                { id: "4", name: "Maya Osei",   emoji: "🌿", condition: "ADHD",             learning_style: "Kinesthetic", streak_days: 5,  weekly_progress: 60, insights: [], attention_trend: [], last_active: "" },
-              ] as StudentProfile[]).map(s => {
-                const needsAttention = s.weekly_progress < 55;
-                const conditionColors: Record<string, string> = {
-                  "ADHD": "bg-dust-lo text-dust",
-                  "Dyslexia": "bg-[#E8F4FD] text-[#1A5C96]",
-                  "Autism Spectrum": "bg-honey-lo text-bark-deep",
-                  "General": "bg-sand text-bark-soft",
-                };
-                const conditionKey = Object.keys(conditionColors).find(k => s.condition.includes(k)) ?? "General";
-                return (
-                  <div key={s.id}>
-                    <button onClick={() => setExpanded(expandedStudent === s.id ? null : s.id)}
-                      className="w-full flex items-start gap-3 p-3 bg-sand rounded-2xl hover:bg-sand-mid transition-colors text-left">
-                      <span className="text-xl mt-0.5">{s.emoji}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <p className="font-semibold text-bark-deep text-sm">{s.name}</p>
-                          {needsAttention && <span className="text-[10px] bg-terra-lo text-terra-hi px-1.5 py-0.5 rounded-full font-bold">⚠ Needs attention</span>}
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${conditionColors[conditionKey]}`}>{s.condition}</span>
-                          <span className="text-[10px] bg-parch text-bark-soft px-2 py-0.5 rounded-full">{s.learning_style}</span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-2">
-                          <div className="flex-1 h-1.5 bg-sand-mid rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full transition-all ${needsAttention ? "bg-terra" : "bg-sage"}`} style={{ width: `${s.weekly_progress}%` }} />
-                          </div>
-                          <p className="text-bark-faint text-[10px] shrink-0">{s.weekly_progress}% covered</p>
-                        </div>
-                      </div>
-                      <span className="text-bark-faint text-xs shrink-0 mt-0.5">{expandedStudent === s.id ? "▲" : "▼"}</span>
-                    </button>
-                    {expandedStudent === s.id && (
-                      <div className="mt-1 ml-3 p-3 bg-dust-lo rounded-xl space-y-1.5">
-                        <p className="text-bark-faint text-[10px] uppercase tracking-wide font-semibold mb-1">AI Insights</p>
-                        {s.insights.length > 0 ? s.insights.map((ins, i) => (
-                          <div key={i} className="flex items-center gap-2">
-                            <span className="text-xs">{ins.trend === "up" ? "📈" : ins.trend === "down" ? "📉" : "•"}</span>
-                            <span className="text-bark-deep text-xs"><strong>{ins.label}:</strong> {ins.value}</span>
-                          </div>
-                        )) : (
-                          <p className="text-bark-faint text-xs">No insights yet — generate content to track progress.</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* AI Suggestions */}
-          <div>
-            <p className="text-xs font-semibold text-bark-faint uppercase tracking-wider mb-3">Real-time AI Suggestions</p>
-            <div className="space-y-2">
-              {[
-                { icon: "⚡", tip: "Alex's focus drops after 18 min — use the timer badges." },
-                { icon: "🎵", tip: "Sam processes audio 40% faster — try the Audio Version." },
-                { icon: "📅", tip: "Jordan needs predictable structure — use Restructured Slides." },
-                { icon: "🎯", tip: "Maya improves with chunked content — use ADHD Slides." },
-              ].map((t, i) => (
-                <div key={i} className="bg-terra-lo rounded-xl p-3 flex items-start gap-2">
-                  <span className="text-base shrink-0">{t.icon}</span>
-                  <p className="text-bark-deep text-xs leading-relaxed">{t.tip}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Topic Difficulty Heatmap */}
-          <div>
-            <p className="text-xs font-semibold text-bark-faint uppercase tracking-wider mb-3">Topic Difficulty Heatmap</p>
-            {(() => {
-              const heatColors = ["bg-sage-lo", "bg-sage-mid", "bg-honey-lo", "bg-terra-mid", "bg-terra"];
-              const topicMap = new Map<string, number[]>();
-              for (const cell of heatmapCells) {
-                const arr = topicMap.get(cell.topic) ?? []; arr.push(cell.difficulty); topicMap.set(cell.topic, arr);
-              }
-              for (const ev of sessionEvents) {
-                const arr = topicMap.get(ev.topic) ?? []; arr.push(ev.difficulty); topicMap.set(ev.topic, arr);
-              }
-              const topics: [string, number[]][] = topicMap.size > 0
-                ? Array.from(topicMap.entries())
-                : [["ADHD Slides", [3]], ["Autism Slides", [3]], ["Audio Version", [2]]];
-              return (
-                <div className="space-y-2">
-                  {topics.map(([topic, vals]) => {
-                    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-                    const idx = Math.max(0, Math.min(4, Math.round(avg) - 1));
-                    return (
-                      <div key={topic} className="flex items-center gap-2">
-                        <span className="text-bark-soft text-xs w-28 truncate shrink-0">{topic}</span>
-                        <div className="flex-1 h-4 bg-sand-mid rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full transition-all duration-500 ${heatColors[idx]}`} style={{ width: `${Math.round((avg / 5) * 100)}%` }} />
-                        </div>
-                        <span className="text-bark-faint text-xs w-4 shrink-0">{Math.round(avg)}</span>
-                      </div>
-                    );
-                  })}
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-bark-faint text-xs">Easy</span>
-                    <div className="flex gap-1 flex-1">{heatColors.map(c => <div key={c} className={`flex-1 h-2 rounded ${c}`} />)}</div>
-                    <span className="text-bark-faint text-xs">Hard</span>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-
-          {/* Engagement bars */}
-          {bars.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-bark-faint uppercase tracking-wider mb-3">Engagement Analytics</p>
-              <div className="space-y-2.5">
-                {bars.map(b => (
-                  <div key={b.label}>
-                    <div className="flex justify-between text-xs text-bark-faint mb-1"><span>{b.label}</span><span>{b.value}%</span></div>
-                    <div className="h-2 bg-sand-mid rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${b.color}`} style={{ width: `${b.value}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Weekly reports */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-semibold text-bark-faint uppercase tracking-wider">Weekly Reports</p>
-              <button onClick={triggerReport} className="text-xs text-terra-hi font-medium hover:underline">Generate</button>
-            </div>
-            <div className="space-y-2">
-              {(reports.length > 0 ? reports : [
-                { id: "r1", week_label: "Week 20 · May 2026", summary: "Strong engagement across all cohorts.", highlights: [], recommendations: [], download_url: "", generated_at: "" },
-                { id: "r2", week_label: "Week 19 · May 2026", summary: "Quiz completion improved by 12%.",     highlights: [], recommendations: [], download_url: "", generated_at: "" },
-              ] as WeeklyReport[]).map(r => (
-                <div key={r.id} className="bg-sand rounded-xl p-3 flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-bark-deep text-xs font-semibold truncate">{r.week_label}</p>
-                    <p className="text-bark-faint text-xs line-clamp-2 mt-0.5">{r.summary}</p>
-                  </div>
-                  <span className="shrink-0 text-bark-faint text-[10px]">AI summary</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
         </aside>
       </div>
 
-      <Ilmuist fileId={fileId} />
+      <EducatorIlmChat
+        fileId={fileId}
+        fileName={fileName}
+        pockets={pockets}
+        generatedOutputs={generatedOutputs}
+        lang={lang}
+        appExtras={{
+          hasFile: !!fileId,
+          filename: fileName || undefined,
+          classPanelOpen: sidebarOpen,
+        }}
+      />
     </div>
   );
 }

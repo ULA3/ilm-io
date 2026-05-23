@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Lora, Nunito } from "next/font/google";
 import "./globals.css";
 import { SideDock } from "@/app/components/SideDock";
+import { CuteCompanions } from "@/app/components/CuteCompanions";
+import { Providers } from "@/app/providers";
 
 const lora = Lora({
   variable: "--font-lora",
@@ -26,7 +28,7 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "ilm.io — Learning that understands you",
   description:
-    "An AI-powered platform that transforms study materials into accessible content designed for neurodivergent learners.",
+    "An adaptive learning platform for neurodivergent learners. Not a generic summarizer. Your notes become formats that match how your brain works.",
 };
 
 const darkInitScript = `
@@ -47,8 +49,11 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: darkInitScript }} />
       </head>
       <body className="min-h-full flex flex-col">
-        {children}
-        <SideDock />
+        <Providers>
+          <CuteCompanions />
+          {children}
+          <SideDock />
+        </Providers>
       </body>
     </html>
   );

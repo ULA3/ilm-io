@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
@@ -130,22 +130,32 @@ class EducatorGenerateResponse(BaseModel):
 
 # ── Chat ──────────────────────────────────────────────────────────────────
 
+IlmLang = Literal["en", "ms", "zh", "ta", "rojak"]
+
 class ChatMessage(BaseModel):
     role: str                  # user | assistant
     content: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+class AssistantAction(BaseModel):
+    id: str
+    label: str
 
 class ChatRequest(BaseModel):
     session_id: str
     message: str
     role: UserRole = UserRole.student
     context_file_id: str | None = None
+    lang: IlmLang = "en"
+    app_page: str = "student"
+    app_context: str = ""
 
 class ChatResponse(BaseModel):
     session_id: str
     message: str
     role: str = "assistant"
     suggestions: list[str] = []
+    actions: list[AssistantAction] = []
 
 
 # ── Students ──────────────────────────────────────────────────────────────

@@ -9,10 +9,22 @@ import type {
   AgentSlidesResponse, Language,
 } from "@/lib/api";
 import { TranslatingOverlay } from "@/app/components/TranslatingOverlay";
-import { getAccSettings } from "@/app/components/AccessibilityWidget";
+import { getAccSettings } from "@/lib/accessibility";
 import { DownloadBar } from "@/app/components/DownloadBar";
 import { StudentIlmChat } from "@/app/components/StudentIlmChat";
+import { SlideVisual } from "@/app/components/SlideVisual";
 import { trackEvent } from "@/lib/track";
+import { type StudentOutputKind } from "@/lib/ilm-formats";
+import { getStudentOutputButtons } from "@/lib/localized-formats";
+import { MOOD_KEYS, MOOD_STYLES, type MoodKey } from "@/lib/mood-styles";
+import { useIlmLanguage } from "@/lib/ilm-language";
+import { IlmLanguageSelect } from "@/app/components/ilm/IlmLanguageSelect";
+import { useUiStrings } from "@/lib/use-ui-strings";
+import type { UiStrings } from "@/lib/ui-strings";
+import { ILM_ASSISTANT_PAGE_EVENT } from "@/lib/ilm-assistant-actions";
+import { SimplePocketList } from "@/app/components/SimplePocketList";
+import { FormatBadge } from "@/app/components/ilm/FormatBadge";
+import { IlmLogo } from "@/app/components/ilm/IlmLogo";
 import {
   buildFocusSlidesHtml,
   buildCalmSlidesHtml,
@@ -20,7 +32,7 @@ import {
   buildMindmapHtml,
 } from "@/lib/slide-export-html";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { apiFetchHeaders, apiUrl } from "@/lib/api-base";
 
 const LANGUAGES: { code: Language; label: string; flag: string }[] = [
   { code: "en", label: "English",       flag: "🇬🇧" },
@@ -30,7 +42,7 @@ const LANGUAGES: { code: Language; label: string; flag: string }[] = [
 ];
 
 type PipelineStep = "idle" | "uploading" | "reading" | "ready" | "generating" | "done" | "error";
-type OutputKind   = "adhd" | "autism" | "dyslexia" | "mindmap" | "worksheet";
+type OutputKind = StudentOutputKind;
 
 /* ── Theme helpers ──────────────────────────────────────────── */
 const THEME_RING: Record<string, string>  = { teal:"ring-[#009688]", amber:"ring-[#FFB300]", rose:"ring-[#E53935]", violet:"ring-[#7344B8]" };
@@ -52,14 +64,14 @@ const CANVA: Record<string, {
 /* ── Floating nature leaves background ─────────────────────── */
 function FloatingLeaves() {
   const leaves = [
-    { size:34, top:"8%",   left:"6%",   rot:"-15deg",  delay:"0s",    dur:"14s", opacity:0.22 },
-    { size:22, top:"18%",  left:"82%",  rot:"25deg",   delay:"2s",    dur:"18s", opacity:0.18 },
-    { size:28, top:"38%",  left:"3%",   rot:"-5deg",   delay:"5s",    dur:"16s", opacity:0.2  },
-    { size:18, top:"52%",  left:"91%",  rot:"40deg",   delay:"1s",    dur:"20s", opacity:0.15 },
-    { size:38, top:"68%",  left:"10%",  rot:"-30deg",  delay:"7s",    dur:"12s", opacity:0.2  },
-    { size:24, top:"75%",  left:"75%",  rot:"18deg",   delay:"3.5s",  dur:"17s", opacity:0.17 },
-    { size:20, top:"88%",  left:"45%",  rot:"-10deg",  delay:"9s",    dur:"15s", opacity:0.14 },
-    { size:30, top:"25%",  left:"55%",  rot:"32deg",   delay:"6s",    dur:"22s", opacity:0.12 },
+    { size:34, top:"8%",   left:"6%",   rot:"-15deg",  delay:"0s",    dur:"14s", opacity:0.07 },
+    { size:22, top:"18%",  left:"82%",  rot:"25deg",   delay:"2s",    dur:"18s", opacity:0.06 },
+    { size:28, top:"38%",  left:"3%",   rot:"-5deg",   delay:"5s",    dur:"16s", opacity:0.065 },
+    { size:18, top:"52%",  left:"91%",  rot:"40deg",   delay:"1s",    dur:"20s", opacity:0.05 },
+    { size:38, top:"68%",  left:"10%",  rot:"-30deg",  delay:"7s",    dur:"12s", opacity:0.07 },
+    { size:24, top:"75%",  left:"75%",  rot:"18deg",   delay:"3.5s",  dur:"17s", opacity:0.055 },
+    { size:20, top:"88%",  left:"45%",  rot:"-10deg",  delay:"9s",    dur:"15s", opacity:0.045 },
+    { size:30, top:"25%",  left:"55%",  rot:"32deg",   delay:"6s",    dur:"22s", opacity:0.04 },
   ];
   return (
     <div className="pointer-events-none select-none fixed inset-0 z-0 overflow-hidden" aria-hidden>
@@ -169,12 +181,13 @@ const KIND_CONDITIONS: Record<string, string[]> = {
 
 /* ── Pipeline Indicator ─────────────────────────────────────── */
 function PipelineIndicator({ step }: { step: PipelineStep }) {
+  const ui = useUiStrings();
   const steps = [
-    { key: "uploading",  label: "Upload" },
-    { key: "reading",    label: "Read" },
-    { key: "ready",      label: "Select" },
-    { key: "generating", label: "Generate" },
-    { key: "done",       label: "Done" },
+    { key: "uploading",  label: ui.student.pipelineSteps.upload },
+    { key: "reading",    label: ui.student.pipelineSteps.read },
+    { key: "ready",      label: ui.student.pipelineSteps.select },
+    { key: "generating", label: ui.student.pipelineSteps.generate },
+    { key: "done",       label: ui.student.pipelineSteps.done },
   ];
   const idx = steps.findIndex(s => s.key === step || (step === "error" && s.key === "generating"));
   return (
@@ -257,7 +270,7 @@ function DyslexiaSlidesPanel({ result }: { result: AgentSlidesResponse }) {
         <DownloadBar
           title="Easy Read Slides"
           pptxUrl={result.download_url}
-          htmlBody={buildEasyReadHtml(slides)}
+          htmlBody={buildEasyReadHtml(slides, result.topic)}
           accentColor="#1A5C96"
           trackTopic="Easy Read Slides"
         />
@@ -270,6 +283,9 @@ function DyslexiaSlidesPanel({ result }: { result: AgentSlidesResponse }) {
             </h4>
           </div>
           <div className="bg-[#FAF8F5] px-6 py-5 space-y-3">
+            {(s.visual_hint || s.title) && (
+              <SlideVisual visualHint={s.visual_hint} title={s.title} topic={result.topic} variant="banner" />
+            )}
             <ul className="space-y-3">
               {(s.bullets ?? []).map((b, j) => (
                 <li key={j} className="flex items-start gap-3 text-base text-[#1C1C1C] leading-relaxed">
@@ -344,6 +360,9 @@ function ADHDPanel({ result }: { result: AgentSlidesResponse }) {
             <div className="h-1.5" style={{ background:`linear-gradient(to right,${t.header}99,transparent)` }} />
             {/* Content area */}
             <div className="px-6 py-4 space-y-3" style={{ background: t.content }}>
+              {(s.visual_hint || s.title) && (
+                <SlideVisual visualHint={s.visual_hint} title={s.title} topic={result.topic} variant="banner" />
+              )}
               {/* Focus hook */}
               {s.focus_question && (
                 <div className="rounded-xl px-4 py-3 flex items-center gap-2.5" style={{ background: t.qBg }}>
@@ -360,9 +379,6 @@ function ADHDPanel({ result }: { result: AgentSlidesResponse }) {
                   </li>
                 ))}
               </ul>
-              {s.visual_hint && (
-                <div className="bg-white/70 border border-sand-mid rounded-xl px-3 py-2 text-xs text-bark-soft italic">🖼 {s.visual_hint}</div>
-              )}
               {s.mind_map_hint && (
                 <div className="bg-white/70 border border-sand-mid rounded-xl px-3 py-2 text-xs text-bark-soft">🗺 {s.mind_map_hint}</div>
               )}
@@ -400,7 +416,7 @@ function AutismPanel({ result }: { result: AgentSlidesResponse }) {
         <DownloadBar
           title="Clear & Calm Slides"
           pptxUrl={result.download_url}
-          htmlBody={buildCalmSlidesHtml(slides)}
+          htmlBody={buildCalmSlidesHtml(slides, result.topic)}
           accentColor="#3F51B5"
           trackTopic="Clear & Calm Slides"
         />
@@ -459,11 +475,6 @@ function AutismPanel({ result }: { result: AgentSlidesResponse }) {
                 <p className="text-bark-soft text-xs leading-relaxed">{s.why_it_matters}</p>
               </div>
             )}
-            {s.visual_description && (
-              <div className="bg-[#F5F5F5] rounded-xl px-3 py-2 text-xs text-bark-faint italic">
-                [ Visual ] {s.visual_description}
-              </div>
-            )}
           </div>
         </div>
       ))}
@@ -481,7 +492,7 @@ function AudioPanel({ result }: { result: TranscribeResponse }) {
     if (!audio_url || downloading) return;
     setDownloading(true);
     try {
-      const res = await fetch(`${BASE}${audio_url}`);
+      const res = await fetch(apiUrl(audio_url), { headers: apiFetchHeaders() });
       if (!res.ok) throw new Error("Download failed");
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
@@ -1014,6 +1025,7 @@ function WorksheetPanel({ result, lang }: { result: ExaminerWorksheetResponse; l
 type UploadedFile = { name: string; fileId: string; preview?: string };
 
 function UploadZone({ onFile, disabled }: { onFile: (fileId: string, name: string) => void; disabled?: boolean }) {
+  const ui = useUiStrings();
   const [dragging, setDragging]   = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError]         = useState<string | null>(null);
@@ -1025,6 +1037,7 @@ function UploadZone({ onFile, disabled }: { onFile: (fileId: string, name: strin
   async function accept(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
     setUploading(true); setError(null);
+    const newEntries: UploadedFile[] = [];
     for (const file of Array.from(fileList)) {
       try {
         let preview: string | undefined;
@@ -1036,14 +1049,15 @@ function UploadZone({ onFile, disabled }: { onFile: (fileId: string, name: strin
           });
         }
         const res = await api.uploadFile(file);
-        setFiles(prev => {
-          const updated = [...prev, { name: file.name, fileId: res.file_id, preview }];
-          const newIdx = updated.length - 1;
-          setActiveIdx(newIdx);
-          onFile(res.file_id, file.name);
-          return updated;
-        });
-      } catch { setError("One or more files failed to upload"); }
+        newEntries.push({ name: file.name, fileId: res.file_id, preview });
+      } catch { setError(ui.student.upload.uploadError); }
+    }
+    if (newEntries.length > 0) {
+      const last = newEntries[newEntries.length - 1];
+      const nextIdx = files.length + newEntries.length - 1;
+      setFiles((prev) => [...prev, ...newEntries]);
+      setActiveIdx(nextIdx);
+      onFile(last.fileId, last.name);
     }
     setUploading(false);
   }
@@ -1055,16 +1069,19 @@ function UploadZone({ onFile, disabled }: { onFile: (fileId: string, name: strin
 
   function removeFile(idx: number, e: React.MouseEvent) {
     e.stopPropagation();
-    setFiles(prev => {
-      const next = prev.filter((_, i) => i !== idx);
-      if (next.length > 0) { const ni = Math.min(idx, next.length - 1); setActiveIdx(ni); onFile(next[ni].fileId, next[ni].name); }
-      else setActiveIdx(null);
-      return next;
-    });
+    const next = files.filter((_, i) => i !== idx);
+    setFiles(next);
+    if (next.length > 0) {
+      const ni = Math.min(idx, next.length - 1);
+      setActiveIdx(ni);
+      onFile(next[ni].fileId, next[ni].name);
+    } else {
+      setActiveIdx(null);
+    }
   }
 
   return (
-    <div className="space-y-3">
+    <div id="ilm-student-upload" className="space-y-4 scroll-mt-24">
       {/* Drop zone */}
       <div onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
@@ -1076,7 +1093,7 @@ function UploadZone({ onFile, disabled }: { onFile: (fileId: string, name: strin
         {uploading ? (
           <div className="space-y-2">
             <div className="w-10 h-10 border-2 border-sage border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-bark-soft text-sm">Uploading…</p>
+            <p className="text-bark-soft text-sm">{ui.student.upload.uploading}</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -1085,8 +1102,8 @@ function UploadZone({ onFile, disabled }: { onFile: (fileId: string, name: strin
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
               </svg>
             </div>
-            <p className="font-semibold text-bark-deep text-sm">Drop files here or click to browse</p>
-            <p className="text-bark-faint text-xs">PDF · DOCX · MP3 · WAV · JPG · PNG · Multiple files OK</p>
+            <p className="font-semibold text-bark-deep text-sm">{ui.student.upload.dropHint}</p>
+            <p className="text-bark-faint text-xs">{ui.student.upload.fileTypes}</p>
           </div>
         )}
         {error && <p className="mt-2 text-terra-hi text-xs">{error}</p>}
@@ -1096,40 +1113,66 @@ function UploadZone({ onFile, disabled }: { onFile: (fileId: string, name: strin
       {files.length > 0 && (
         <div className="space-y-1.5">
           {files.map((f, i) => (
-            <button key={f.fileId} onClick={() => selectFile(i)}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl border-2 text-left transition-all ${
+            <div
+              key={f.fileId}
+              className={`flex items-center gap-1 rounded-xl border-2 pr-1 transition-all ${
                 activeIdx === i ? "border-sage bg-sage-lo" : "border-sand-mid bg-white hover:border-sage"
-              }`}>
-              {f.preview
-                // eslint-disable-next-line @next/next/no-img-element
-                ? <img src={f.preview} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0 border border-sand-mid" />
-                : <span className="w-8 h-8 bg-dust-lo rounded-lg flex items-center justify-center text-dust text-xs shrink-0">
-                    {f.name.endsWith(".pdf") ? "PDF" : f.name.endsWith(".mp3") || f.name.endsWith(".wav") ? "🎵" : "📄"}
-                  </span>
-              }
-              <span className="flex-1 text-bark-deep text-xs font-medium truncate">{f.name}</span>
-              {activeIdx === i && <span className="text-sage text-xs font-bold shrink-0">Active</span>}
-              <button onClick={e => removeFile(i, e)} className="text-bark-faint hover:text-terra-hi transition-colors text-xs shrink-0 ml-1">✕</button>
-            </button>
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => selectFile(i)}
+                className="flex-1 flex items-center gap-3 px-3 py-2 text-left min-w-0"
+              >
+                {f.preview
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img src={f.preview} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0 border border-sand-mid" />
+                  : <span className="w-8 h-8 bg-dust-lo rounded-lg flex items-center justify-center text-dust text-xs shrink-0">
+                      {f.name.endsWith(".pdf") ? "PDF" : f.name.endsWith(".mp3") || f.name.endsWith(".wav") ? "🎵" : "📄"}
+                    </span>
+                }
+                <span className="flex-1 text-bark-deep text-xs font-medium truncate">{f.name}</span>
+                {activeIdx === i && <span className="text-sage text-xs font-bold shrink-0">{ui.student.upload.active}</span>}
+              </button>
+              <button
+                type="button"
+                onClick={(e) => removeFile(i, e)}
+                className="text-bark-faint hover:text-terra-hi transition-colors text-xs shrink-0 w-8 h-8 rounded-lg hover:bg-terra-lo"
+                aria-label={`Remove ${f.name}`}
+              >
+                ✕
+              </button>
+            </div>
           ))}
         </div>
       )}
 
-      {/* Camera button — uses device camera on mobile */}
-      <div className="flex items-center gap-2">
-        <div className="flex-1 h-px bg-sand-mid" />
-        <span className="text-bark-faint text-xs">or</span>
-        <div className="flex-1 h-px bg-sand-mid" />
+      {/* Camera — spaced below divider so the button does not touch the lines */}
+      <div className="pt-1 space-y-3">
+        <div className="flex items-center gap-3 px-1">
+          <div className="flex-1 h-px bg-sand-mid" />
+          <span className="text-bark-faint text-xs shrink-0 px-1">{ui.student.upload.or}</span>
+          <div className="flex-1 h-px bg-sand-mid" />
+        </div>
+        <button
+          type="button"
+          onClick={() => !uploading && !disabled && cameraRef.current?.click()}
+          disabled={uploading || disabled}
+          className="w-full flex items-center justify-center gap-2 bg-sand border border-sand-mid rounded-2xl px-4 py-3 text-bark-soft text-sm font-medium hover:bg-sand-mid hover:text-bark-deep transition-all disabled:opacity-50"
+        >
+          <span className="text-xl">📷</span>
+          {ui.student.upload.takePhoto}
+          <span className="text-[10px] text-bark-faint">{ui.student.upload.takePhotoHint}</span>
+        </button>
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={(e) => accept(e.target.files)}
+          className="hidden"
+        />
       </div>
-      <button onClick={() => !uploading && !disabled && cameraRef.current?.click()}
-        disabled={uploading || disabled}
-        className="w-full flex items-center justify-center gap-2 bg-sand border border-sand-mid rounded-2xl px-4 py-3 text-bark-soft text-sm font-medium hover:bg-sand-mid hover:text-bark-deep transition-all disabled:opacity-50">
-        <span className="text-xl">📷</span>
-        Take a Photo
-        <span className="text-[10px] text-bark-faint">(mobile camera)</span>
-      </button>
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment"
-        onChange={e => accept(e.target.files)} className="hidden" />
     </div>
   );
 }
@@ -1151,42 +1194,110 @@ function speakText(text: string, lang: string) {
   window.speechSynthesis.speak(utter);
 }
 
-/* ── Mood Check-In Overlay ──────────────────────────────────── */
-const MOOD_OPTIONS = [
-  { key: "good",     emoji: "😊", label: "Good",     desc: "Ready to learn!",       bg: "bg-sage-lo",   accent: "border-sage",    text: "text-sage-hi",    greeting: "You're on fire today! Let's make something click." },
-  { key: "okay",     emoji: "😐", label: "Okay",     desc: "Let's go at our pace",  bg: "bg-cream",     accent: "border-sand-mid",text: "text-bark-soft",  greeting: "No worries — we go at your pace, always." },
-  { key: "tired",    emoji: "😔", label: "Tired",    desc: "Short & gentle mode",   bg: "bg-dust-lo",   accent: "border-dust",    text: "text-dust-hi",    greeting: "Take it easy, we'll keep things short and simple today." },
-  { key: "stressed", emoji: "😤", label: "Stressed", desc: "Extra support mode",    bg: "bg-terra-lo",  accent: "border-terra",   text: "text-terra-hi",   greeting: "It's okay — Ilm's got you. Breathe, and let's take it one step at a time." },
-];
+function moodMeta(mood: string, ui: UiStrings) {
+  const key = (MOOD_KEYS.includes(mood as MoodKey) ? mood : "okay") as MoodKey;
+  const style = MOOD_STYLES[key];
+  const copy = ui.mood.options[key];
+  return { key, ...style, label: copy.label, desc: copy.desc };
+}
 
-function MoodCheckIn({ onSelect }: { onSelect: (mood: string) => void }) {
+function MoodChip({
+  mood,
+  onClick,
+  className = "",
+}: {
+  mood: string;
+  onClick: () => void;
+  className?: string;
+}) {
+  const ui = useUiStrings();
+  const m = moodMeta(mood, ui);
   return (
-    <div className="fixed inset-0 bg-cream z-50 flex flex-col items-center justify-center p-6">
-      <Link href="/" className="absolute top-5 left-5 flex items-center gap-1.5 text-bark-faint hover:text-bark-deep transition-colors text-sm font-medium">
-        ← Back
-      </Link>
-      <div className="max-w-md w-full text-center space-y-8">
-        <div>
-          <div className="w-16 h-16 bg-sage rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
-            <span className="text-white text-3xl font-bold">✦</span>
-          </div>
-          <h1 className="font-serif text-3xl font-semibold text-bark-deep">Welcome to ilm.io</h1>
-          <p className="text-bark-soft mt-2 text-base leading-relaxed">
-            How are you feeling right now?<br />
-            <span className="text-bark-faint text-sm">I&apos;ll adjust how I explain things to match your energy.</span>
-          </p>
+    <button
+      type="button"
+      onClick={onClick}
+      title={ui.mood.changeTitle}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-transform hover:scale-105 ${m.chip} ${className}`}
+    >
+      <span className="text-base leading-none">{m.emoji}</span>
+      <span>{m.label}</span>
+      <span className="opacity-80 text-[10px]">▾</span>
+    </button>
+  );
+}
+
+function MoodPickerModal({
+  open,
+  onSelect,
+  onClose,
+  currentMood,
+  requirePick,
+}: {
+  open: boolean;
+  onSelect: (mood: string) => void;
+  onClose?: () => void;
+  currentMood?: string;
+  requirePick?: boolean;
+}) {
+  const ui = useUiStrings();
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-bark-deep/45 backdrop-blur-sm"
+      onClick={requirePick ? undefined : onClose}
+      role="presentation"
+    >
+      <div
+        className="bg-parch rounded-3xl border border-sand-mid shadow-2xl w-full max-w-md p-6 animate-fade-up"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="mood-picker-title"
+        aria-modal="true"
+      >
+        <div className="text-center mb-5">
+          <p className="text-2xl mb-2">✦</p>
+          <h2 id="mood-picker-title" className="font-serif text-xl font-semibold text-bark-deep">
+            {ui.mood.pickerTitle}
+          </h2>
+          <p className="text-bark-soft text-sm mt-1">{ui.mood.pickerSub}</p>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          {MOOD_OPTIONS.map(m => (
-            <button key={m.key} onClick={() => onSelect(m.key)}
-              className="bg-parch border-2 border-sand-mid rounded-2xl p-5 text-center hover:border-sage hover:bg-sage-lo transition-all group">
-              <div className="text-4xl mb-2">{m.emoji}</div>
-              <p className="font-bold text-bark-deep text-base group-hover:text-sage-hi">{m.label}</p>
-              <p className="text-bark-faint text-xs mt-0.5">{m.desc}</p>
-            </button>
-          ))}
+        <div className="grid grid-cols-2 gap-4">
+          {MOOD_KEYS.map((key) => {
+            const m = moodMeta(key, ui);
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => onSelect(key)}
+                className={`rounded-2xl p-4 text-center transition-all hover:scale-[1.02] active:scale-[0.98] ${m.card} ${
+                  currentMood === key ? "ring-2 ring-sage-hi/40 shadow-md" : ""
+                }`}
+              >
+                <div className="text-3xl mb-1.5">{m.emoji}</div>
+                <p className="font-black text-sm leading-tight">{m.label}</p>
+                <p className="text-xs mt-1 opacity-80 leading-snug">{m.desc}</p>
+              </button>
+            );
+          })}
         </div>
-        <p className="text-bark-faint text-xs">You can change this anytime during your session.</p>
+        {!requirePick && onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="mt-5 w-full text-center text-sm text-bark-faint hover:text-bark-deep py-2"
+          >
+            {ui.mood.cancel}
+          </button>
+        )}
+        {requirePick && (
+          <button
+            type="button"
+            onClick={() => onSelect("okay")}
+            className="mt-5 w-full text-center text-sm text-bark-faint hover:text-bark-deep py-2"
+          >
+            {ui.mood.skip}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1198,18 +1309,34 @@ function MoodCheckIn({ onSelect }: { onSelect: (mood: string) => void }) {
 export default function StudentDashboard() {
   const [fileId, setFileId]     = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
-  const [lang, setLang]         = useState<Language>("en");
+  const { lang } = useIlmLanguage();
+  const ui = useUiStrings();
+  const OUTPUT_BUTTONS = getStudentOutputButtons(lang);
   const [step, setStep]         = useState<PipelineStep>("idle");
   const [pockets, setPockets]   = useState<PocketsResponse | null>(null);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen]     = useState(false);
 
-  // Mood check-in
-  const [mood, setMood]               = useState("okay");
+  // Mood — first visit popup only; after that small chip (no sticky banner)
+  const [mood, setMood] = useState("okay");
   const [moodCheckedIn, setMoodCheckedIn] = useState(false);
+  const [moodPickerOpen, setMoodPickerOpen] = useState(false);
 
   // Focus mode
   const [focusMode, setFocusMode]     = useState(false);
+
+  useEffect(() => {
+    const onPageAction = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id;
+      if (id === "open_mood_picker") setMoodPickerOpen(true);
+      else if (id === "toggle_focus_mode") setFocusMode((f) => !f);
+      else if (id === "scroll_student_upload") {
+        document.getElementById("ilm-student-upload")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    };
+    window.addEventListener(ILM_ASSISTANT_PAGE_EVENT, onPageAction);
+    return () => window.removeEventListener(ILM_ASSISTANT_PAGE_EVENT, onPageAction);
+  }, []);
 
   type OutputState =
     | { kind: "adhd";      data: AgentSlidesResponse }
@@ -1226,12 +1353,9 @@ export default function StudentDashboard() {
   const stageTimers                         = useRef<ReturnType<typeof setTimeout>[]>([]);
   const langMounted                         = useRef(false);
   const [translating, setTranslating]       = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
 
-  const GEN_MESSAGES = [
-    "Reading your document…",
-    "Adapting for your learning style…",
-    "Almost ready…",
-  ];
+  const GEN_MESSAGES = ui.student.genMessages;
 
   useEffect(() => {
     if (step !== "generating") return;
@@ -1245,8 +1369,12 @@ export default function StudentDashboard() {
     if (!langMounted.current) { langMounted.current = true; return; }
     if (!fileId || step !== "done" || !activeOutput || translating) return;
     setTranslating(true);
+    setTranslateError(null);
     (async () => {
       try {
+        const p = await api.agentRead(fileId, lang);
+        setPockets(p);
+        setTruncatedWarning(!!p.truncated);
         if (activeOutput === "adhd") {
           const r = await api.agentStudentADHDSlides(fileId, lang);
           setOutput({ kind: "adhd", data: r as AgentSlidesResponse });
@@ -1263,18 +1391,23 @@ export default function StudentDashboard() {
           const r = await api.agentExaminerWorksheet(fileId, lang);
           setOutput({ kind: "worksheet", data: r });
         }
-      } catch { /* keep existing output on failure */ }
-      finally { setTranslating(false); }
+      } catch (e) {
+        setTranslateError(e instanceof Error ? e.message : "Could not refresh in this language");
+      } finally { setTranslating(false); }
     })();
   }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleUpload(id: string, name: string) {
     setFileId(id); setFileName(name);
     setPockets(null); setPipelineError(null); setOutput(null); setActiveOutput(null);
+    setTranslateError(null);
+    setTruncatedWarning(false);
     setStep("reading");
     try {
       const p = await api.agentRead(id, lang);
-      setPockets(p); setStep("ready");
+      setPockets(p);
+      setTruncatedWarning(!!p.truncated);
+      setStep("ready");
       trackEvent("upload", { topic: p.topic, filename: name });
     } catch (e) {
       setPipelineError(e instanceof Error ? e.message : "Reader Agent failed");
@@ -1310,7 +1443,12 @@ export default function StudentDashboard() {
       }
       setStep("done");
     } catch (e) {
-      setPipelineError(e instanceof Error ? e.message : "Agent failed");
+      const msg = e instanceof Error ? e.message : "Something went wrong";
+      setPipelineError(
+        msg.toLowerCase().includes("fetch") || msg.includes("Failed to fetch")
+          ? "Cannot reach server — start backend on port 8000 and check ILMU_API_KEY."
+          : msg
+      );
       setStep("error");
     } finally {
       stageTimers.current.forEach(clearTimeout);
@@ -1318,23 +1456,22 @@ export default function StudentDashboard() {
     }
   }
 
-  const OUTPUT_BUTTONS: { kind: OutputKind; emoji: string; label: string; sub: string; color: string; active: string; helps: string[] }[] = [
-    { kind:"adhd",      emoji:"🧩", label:"Focus Slides",        sub:"Timers · colour themes · one idea per slide · PPTX / PDF / PNG",       helps:["ADHD"],     color:"border-dust-lo bg-white hover:border-dust hover:bg-dust-lo",           active:"border-dust bg-dust-lo" },
-    { kind:"autism",    emoji:"🗂️", label:"Clear & Calm Slides", sub:"Navy layout · What/Details/Why · same structure every slide",          helps:["Autism"],   color:"border-honey-lo bg-white hover:border-honey hover:bg-honey-lo",         active:"border-honey bg-honey-lo" },
-    { kind:"dyslexia",  emoji:"📖", label:"Easy Read Slides",    sub:"Huge text · yellow key phrases · bionic-friendly · all formats",       helps:["Dyslexia"], color:"border-[#E8F4FD] bg-white hover:border-[#1A5C96] hover:bg-[#E8F4FD]", active:"border-[#1A5C96] bg-[#E8F4FD]" },
-    { kind:"mindmap",   emoji:"🗺️", label:"Visual Mind Map",     sub:"Hub-and-spoke branches · colour-coded · expand to explore",            helps:["Visual"],   color:"border-terra-lo bg-white hover:border-terra hover:bg-terra-lo",       active:"border-terra bg-terra-lo" },
-    { kind:"worksheet", emoji:"📝", label:"Practice Questions",  sub:"Fill blanks · T/F · matching · Ilm checks answers · download",       helps:["Hands-on"], color:"border-violet-200 bg-white hover:border-violet-500 hover:bg-violet-50", active:"border-violet-500 bg-violet-50" },
-  ];
-
   return (
-    <div className={`min-h-screen flex flex-col md:flex-row transition-colors duration-700 relative ${MOOD_OPTIONS.find(m => m.key === mood)?.bg ?? "bg-cream"}`}>
+    <div className={`min-h-screen flex flex-col md:flex-row transition-colors duration-700 relative ${moodMeta(mood, ui).pageBg}`}>
 
       <FloatingLeaves />
 
-      {/* ── Mood Check-In overlay ─────────────────────── */}
-      {!moodCheckedIn && (
-        <MoodCheckIn onSelect={m => { setMood(m); setMoodCheckedIn(true); }} />
-      )}
+      <MoodPickerModal
+        open={!moodCheckedIn || moodPickerOpen}
+        requirePick={!moodCheckedIn}
+        currentMood={mood}
+        onSelect={(m) => {
+          setMood(m);
+          setMoodCheckedIn(true);
+          setMoodPickerOpen(false);
+        }}
+        onClose={moodCheckedIn ? () => setMoodPickerOpen(false) : undefined}
+      />
 
       {/* ── Focus Mode overlay ──────────────────────────── */}
       {focusMode && (
@@ -1362,77 +1499,77 @@ export default function StudentDashboard() {
       {/* ── Profile sidebar ──────────────────────────── */}
       <aside className={`fixed md:static inset-y-0 left-0 z-40 w-72 bg-parch border-r border-sand-mid flex flex-col p-6 shrink-0 transition-transform duration-300 ease-in-out ${sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}>
         <div className="flex items-center justify-between mb-3">
-          <Link href="/" className="flex items-center gap-2 group">
-            <div className="w-8 h-8 bg-sage rounded-xl flex items-center justify-center">
-              <span className="text-white text-sm font-bold">✦</span>
-            </div>
-            <span className="font-serif text-xl font-semibold text-bark-deep group-hover:text-sage-hi transition-colors">ilm.io</span>
+          <Link href="/" className="group">
+            <IlmLogo size="sm" variant="white-on-sage" showWordmark />
           </Link>
           <div className="flex items-center gap-1">
             <button onClick={() => setSidebarOpen(false)} className="md:hidden p-2 text-bark-soft hover:text-bark-deep rounded-lg">✕</button>
           </div>
         </div>
         <Link href="/" className="flex items-center gap-1 text-bark-faint hover:text-bark-deep transition-colors text-xs font-medium mb-5 w-fit">
-          ← Back to home
+          {ui.nav.home}
         </Link>
 
         <div className="flex flex-col items-center mb-6 text-center">
           <div className="w-20 h-20 bg-sage-mid rounded-full flex items-center justify-center text-4xl mb-3">🌱</div>
-          <p className="font-semibold text-bark-deep text-lg">My Learning</p>
-          <span className="mt-1 px-3 py-0.5 bg-sage-lo text-sage-hi rounded-full text-xs font-medium">Student Mode</span>
+          <p className="font-semibold text-bark-deep text-lg">{ui.student.myLearning}</p>
+          <span className="mt-1 px-3 py-0.5 bg-sage-lo text-sage-hi rounded-full text-xs font-medium">{ui.student.mode}</span>
         </div>
 
-        {/* Language selector */}
-        <div className="mb-5">
-          <p className="text-xs font-semibold text-bark-faint uppercase tracking-wider mb-2">Language</p>
-          <div className="grid grid-cols-2 gap-1.5">
-            {LANGUAGES.map(l => (
-              <button key={l.code} onClick={() => setLang(l.code)}
-                className={`flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-xs font-medium transition-all ${lang === l.code ? "bg-sage text-white" : "bg-sand text-bark-soft hover:bg-sand-mid"}`}>
-                <span>{l.flag}</span><span>{l.label}</span>
-              </button>
-            ))}
-          </div>
+        <div className="mb-4">
+          <p className="text-xs font-semibold text-bark-faint uppercase tracking-wider mb-2">{ui.student.energy}</p>
+          <MoodChip mood={mood} onClick={() => setMoodPickerOpen(true)} className="w-full justify-center" />
+        </div>
+
+        <div className="mb-6 pb-2">
+          <IlmLanguageSelect id="ilm-lang-student" />
         </div>
 
         {/* Pipeline status */}
         {step !== "idle" && (
           <div className="mb-4 p-3 bg-sand rounded-xl">
-            <p className="text-xs font-semibold text-bark-faint uppercase tracking-wide mb-2">Pipeline Status</p>
+            <p className="text-xs font-semibold text-bark-faint uppercase tracking-wide mb-2">{ui.student.pipeline}</p>
             <PipelineIndicator step={step} />
-            {step === "reading"    && <p className="text-bark-soft text-xs mt-2 animate-pulse">Reader Agent analysing…</p>}
-            {step === "generating" && <p className="text-bark-soft text-xs mt-2 animate-pulse">Agent generating…</p>}
+            {step === "reading"    && <p className="text-bark-soft text-xs mt-2 animate-pulse">{ui.student.reading}</p>}
+            {step === "generating" && <p className="text-bark-soft text-xs mt-2 animate-pulse">{ui.student.generating}</p>}
             {step === "done"       && <p className="text-sage text-xs mt-2 font-medium">✓ {fileName}</p>}
             {step === "error"      && <p className="text-terra-hi text-xs mt-2">{pipelineError}</p>}
           </div>
         )}
 
-        {/* About */}
+        {/* Journey — status only (formats are chosen once in Step 3, not duplicated here) */}
         <div className="bg-dust-lo rounded-2xl p-4 flex-1 min-h-0 overflow-y-auto">
-          <p className="text-xs font-semibold text-dust-hi uppercase tracking-wider mb-3">Agents on standby</p>
-          <div className="space-y-2">
+          <p className="text-xs font-semibold text-dust-hi uppercase tracking-wider mb-3">{ui.student.yourSteps}</p>
+          <ol className="space-y-2.5">
             {[
-              { icon: "📖", name: "Reader", desc: "Knowledge pockets" },
-              { icon: "🧩", name: "Focus Slides", desc: "ADHD format" },
-              { icon: "🗂️", name: "Clear & Calm", desc: "Autism format" },
-              { icon: "📖", name: "Easy Read", desc: "Dyslexia format" },
-              { icon: "🗺️", name: "Mind Map", desc: "Visual branches" },
-              { icon: "📝", name: "Examiner", desc: "Practice questions" },
-            ].map((a, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <span className="text-base">{a.icon}</span>
-                <div>
-                  <p className="text-bark-deep text-xs font-semibold">{a.name}</p>
-                  <p className="text-bark-faint text-[10px]">{a.desc}</p>
-                </div>
-              </div>
+              { n: 1, label: ui.student.journey.upload, done: !!fileId },
+              { n: 2, label: ui.student.journey.reader, done: !!pockets },
+              { n: 3, label: ui.student.journey.pickFormat, done: step === "done" || step === "generating" },
+              { n: 4, label: ui.student.journey.study, done: step === "done" },
+            ].map((s) => (
+              <li key={s.n} className="flex items-start gap-2">
+                <span
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
+                    s.done ? "bg-sage text-white" : "bg-sand text-bark-faint border border-sand-mid"
+                  }`}
+                  aria-hidden
+                >
+                  {s.done ? "✓" : s.n}
+                </span>
+                <p className={`text-xs font-medium pt-0.5 ${s.done ? "text-sage-hi" : "text-bark-soft"}`}>
+                  {s.label}
+                </p>
+              </li>
             ))}
-          </div>
+          </ol>
+          {pockets && step === "ready" && (
+            <p className="text-[10px] text-bark-faint mt-3 leading-relaxed">{ui.student.journeyHint}</p>
+          )}
         </div>
       </aside>
 
       {/* ── Main content ──────────────────────────────── */}
-      <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 pb-24">
+      <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 pb-24 space-y-5">
         <div className="max-w-2xl mx-auto space-y-5">
 
           {/* Mobile top bar */}
@@ -1440,8 +1577,8 @@ export default function StudentDashboard() {
             <Link href="/" className="flex items-center gap-1 text-bark-soft hover:text-bark-deep transition-colors shrink-0 text-xs font-semibold px-2 py-1.5 bg-sand rounded-xl hover:bg-sand-mid">
               ← Home
             </Link>
-            <div className="flex-1 min-w-0 text-center">
-              <p className="font-serif font-semibold text-bark-deep text-sm">ilm.io · Student</p>
+            <div className="flex-1 min-w-0 flex justify-center">
+              <MoodChip mood={mood} onClick={() => setMoodPickerOpen(true)} />
             </div>
             <button onClick={() => setSidebarOpen(true)} aria-label="Open sidebar"
               className="w-9 h-9 bg-sand rounded-xl flex items-center justify-center text-bark-deep shrink-0 hover:bg-sand-mid transition-colors">
@@ -1451,40 +1588,26 @@ export default function StudentDashboard() {
             </button>
           </div>
 
-          {/* Mood banner */}
-          {(() => {
-            const m = MOOD_OPTIONS.find(o => o.key === mood);
-            if (!m) return null;
-            return (
-              <div className={`rounded-2xl border-2 ${m.accent} px-4 py-3 flex items-center gap-3 transition-all`}>
-                <span className="text-3xl">{m.emoji}</span>
-                <div className="flex-1">
-                  <p className={`font-semibold text-sm ${m.text}`}>{m.greeting}</p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={() => setMoodCheckedIn(false)} title="Change mood"
-                    className={`text-xs font-medium px-2.5 py-1 rounded-xl border ${m.accent} ${m.text} hover:opacity-70 transition-opacity`}>
-                    Change
-                  </button>
-                  {step === "done" && (
-                    <button onClick={() => setFocusMode(true)}
-                      className={`text-xs font-medium px-2.5 py-1 rounded-xl border ${m.accent} ${m.text} hover:opacity-70 transition-opacity`}>
-                      Focus mode
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
+          {step === "done" && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setFocusMode(true)}
+                className="text-xs font-semibold text-bark-soft hover:text-bark-deep px-3 py-1.5 rounded-xl bg-parch border border-sand-mid"
+              >
+                ⊡ {ui.student.focusMode}
+              </button>
+            </div>
+          )}
 
           <div>
-            <h1 className="font-serif text-2xl sm:text-3xl font-semibold text-bark-deep">Hi there! Let&apos;s learn together.</h1>
-            <p className="text-bark-soft mt-1 text-sm">Upload your material — ilm.io will turn it into what works best for you.</p>
+            <h1 className="font-serif text-2xl sm:text-3xl font-semibold text-bark-deep">{ui.student.pageTitle}</h1>
+            <p className="text-bark-soft mt-1 text-sm leading-relaxed">{ui.student.pageSub}</p>
           </div>
 
           {/* Step 1 — Upload */}
           <div className="bg-parch rounded-3xl p-5 border border-sand-mid">
-            <h2 className="font-semibold text-bark-deep mb-4">📤 Step 1 — Upload your material</h2>
+            <h2 className="font-semibold text-bark-deep mb-4">📤 {ui.student.step1}</h2>
             <UploadZone onFile={handleUpload} disabled={step === "reading" || step === "generating"} />
           </div>
 
@@ -1497,11 +1620,11 @@ export default function StudentDashboard() {
                 <span className="absolute inset-0 flex items-center justify-center text-2xl">📖</span>
               </div>
               <div className="text-center">
-                <p className="font-semibold text-bark-deep mb-1">Reader Agent is scanning your document…</p>
-                <p className="text-bark-faint text-sm leading-relaxed">Extracting knowledge pockets. This takes about 15–30 seconds.</p>
+                <p className="font-semibold text-bark-deep mb-1">{ui.student.readerScanTitle}</p>
+                <p className="text-bark-faint text-sm leading-relaxed">{ui.student.readerScanSub}</p>
               </div>
               <div className="flex gap-2 mt-1">
-                {["Reading content","Identifying concepts","Forming pockets"].map((label, i) => (
+                {ui.student.readerPhases.map((label, i) => (
                   <div key={i} className="flex items-center gap-1.5 px-2.5 py-1 bg-sage-lo rounded-full">
                     <span className="w-1.5 h-1.5 bg-sage rounded-full animate-pulse-dot" style={{ animationDelay: `${i*250}ms` }} />
                     <span className="text-sage-hi text-[10px] font-medium">{label}</span>
@@ -1516,29 +1639,10 @@ export default function StudentDashboard() {
             <div className="bg-parch rounded-3xl p-5 border border-sand-mid">
               <div className="flex items-center gap-2 mb-1">
                 <div className="w-2 h-2 bg-sage rounded-full" />
-                <h2 className="font-semibold text-bark-deep">Step 2 — Reader found {pockets.pockets.length} concepts</h2>
+                <h2 className="font-semibold text-bark-deep">{ui.student.step2} ({pockets.pockets.length})</h2>
               </div>
-              <p className="text-bark-faint text-xs mb-4 pl-4">from <span className="font-medium text-bark-deep">{pockets.topic}</span></p>
-
-              <div className="bg-sand rounded-2xl p-4 mb-4">
-                <p className="text-bark-soft text-xs font-semibold uppercase tracking-wide mb-1">Summary</p>
-                <p className="text-bark-deep text-sm leading-relaxed">{pockets.summary}</p>
-              </div>
-
-              {pockets.vocabulary.length > 0 && (
-                <div className="mb-4 flex flex-wrap gap-2">
-                  {pockets.vocabulary.map((v, i) => (
-                    <span key={i} title={v.definition}
-                      className="bg-white border border-sand-mid text-bark-deep text-xs px-2.5 py-1 rounded-full cursor-default hover:bg-sand transition-colors">
-                      {v.term}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                {pockets.pockets.map(p => <PocketCard key={p.id} pocket={p} />)}
-              </div>
+              <p className="text-bark-faint text-xs mb-3 pl-4">{pockets.topic}</p>
+              <SimplePocketList pockets={pockets.pockets} />
             </div>
           )}
 
@@ -1547,7 +1651,7 @@ export default function StudentDashboard() {
             <div className="bg-parch rounded-3xl p-5 border border-sand-mid">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-2 h-2 bg-dust rounded-full" />
-                <h2 className="font-semibold text-bark-deep">Step 3 — Choose your learning format</h2>
+                <h2 className="font-semibold text-bark-deep">{ui.student.step3}</h2>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {OUTPUT_BUTTONS.map(btn => (
@@ -1556,9 +1660,12 @@ export default function StudentDashboard() {
                     className={`rounded-3xl p-4 text-left border-2 transition-all ${
                       activeOutput === btn.kind && step !== "idle" ? btn.active : btn.color
                     } ${step === "generating" ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}>
-                    <div className="text-2xl mb-2">{btn.emoji}</div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-2xl">{btn.emoji}</span>
+                      <FormatBadge kind={btn.kind} />
+                    </div>
                     <p className="font-bold text-bark-deep text-sm mb-1">{btn.label}</p>
-                    <p className="text-bark-faint text-xs leading-relaxed mb-2">{btn.sub}</p>
+                    <p className="text-sage-hi text-[11px] leading-snug mb-1 font-medium">{btn.why}</p>
                     <div className="flex flex-wrap gap-1">
                       {btn.helps.map(c => (
                         <span key={c} className="text-[9px] bg-white/70 text-bark-soft px-1.5 py-0.5 rounded-full font-semibold border border-bark-faint/20">
@@ -1569,9 +1676,13 @@ export default function StudentDashboard() {
                   </button>
                 ))}
               </div>
-              <p className="text-bark-faint text-xs mt-4 text-center">
-                Need a summary or quiz? Open <strong>Ilm</strong> (bottom right) for actions — not just chat.
-              </p>
+              <p className="text-bark-faint text-xs mt-4 text-center">{ui.student.ilmFormatHint}</p>
+            </div>
+          )}
+
+          {translateError && (
+            <div className="bg-terra-lo border border-terra rounded-2xl px-4 py-3 text-sm text-terra-hi">
+              {translateError}
             </div>
           )}
 
@@ -1580,8 +1691,8 @@ export default function StudentDashboard() {
             <div className="bg-[#FFF8E1] border border-[#FFB300] rounded-2xl px-4 py-3 flex items-start gap-3">
               <span className="text-[#FFB300] text-lg shrink-0">⚠️</span>
               <div className="flex-1">
-                <p className="text-bark-deep text-sm font-medium">Your document was long — we used the first part.</p>
-                <p className="text-bark-soft text-xs mt-0.5">For best results, try uploading shorter sections.</p>
+                <p className="text-bark-deep text-sm font-medium">{ui.student.truncatedTitle}</p>
+                <p className="text-bark-soft text-xs mt-0.5">{ui.student.truncatedSub}</p>
               </div>
               <button onClick={() => setTruncatedWarning(false)} className="text-bark-faint text-xs hover:text-bark-deep shrink-0">✕</button>
             </div>
@@ -1593,7 +1704,7 @@ export default function StudentDashboard() {
               {translating && <TranslatingOverlay />}
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-2 h-2 bg-dust rounded-full" />
-                <h2 className="font-semibold text-bark-deep">Step 4 — Your output</h2>
+                <h2 className="font-semibold text-bark-deep">{ui.student.step4}</h2>
               </div>
 
               {step === "generating" && (
@@ -1615,7 +1726,7 @@ export default function StudentDashboard() {
 
               {step === "error" && (
                 <div className="bg-terra-lo rounded-2xl p-4">
-                  <p className="text-terra-hi font-semibold text-sm mb-1">Agent failed</p>
+                  <p className="text-terra-hi font-semibold text-sm mb-1">Could not finish</p>
                   <p className="text-bark-deep text-sm">{pipelineError}</p>
                   <button onClick={() => { setStep("ready"); setPipelineError(null); }}
                     className="mt-3 text-xs text-terra-hi font-medium hover:underline">← Back to selection</button>
@@ -1632,7 +1743,19 @@ export default function StudentDashboard() {
         </div>
       </main>
 
-      <StudentIlmChat fileId={fileId} pockets={pockets} mood={mood} lang={lang} />
+      <StudentIlmChat
+        fileId={fileId}
+        pockets={pockets}
+        mood={mood}
+        lang={lang}
+        appExtras={{
+          hasFile: !!fileId,
+          filename: fileName || undefined,
+          mood,
+          moodCheckedIn,
+          focusMode,
+        }}
+      />
     </div>
   );
 }

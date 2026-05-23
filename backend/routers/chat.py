@@ -50,6 +50,9 @@ async def chat(req: ExtendedChatRequest):
         history,
         context_text,
         req.mood,
+        req.lang,
+        req.app_context,
+        req.app_page,
     )
 
     await supabase_client.append_chat_message(req.session_id, "assistant", result["message"])
@@ -58,6 +61,7 @@ async def chat(req: ExtendedChatRequest):
         session_id=req.session_id,
         message=result["message"],
         suggestions=result.get("suggestions", []),
+        actions=result.get("actions", []),
     )
 
 

@@ -1,5 +1,5 @@
 /**
- * Demo analytics — logs engagement to Supabase for educator dashboard heatmaps.
+ * Analytics — logs engagement to Supabase for educator dashboard heatmaps.
  * Uses seeded student Alex Chen until real auth exists.
  */
 import * as api from "./api";

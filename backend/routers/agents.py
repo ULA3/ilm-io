@@ -23,14 +23,40 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 
 # ── Request models ─────────────────────────────────────────────────────────
 
+from typing import Literal
+
+IlmLang = Literal["en", "ms", "zh", "ta", "rojak"]
+
+
 class ReadRequest(BaseModel):
     file_id: str
-    lang: str = "en"     # en | ms | zh | ta
+    lang: IlmLang = "en"
 
 
 class AgentGenerateRequest(BaseModel):
     file_id: str
-    lang: str = "en"     # en | ms | zh | ta
+    lang: IlmLang = "en"
+
+
+def _get_pockets_sync(file_id: str, lang: str = "en") -> dict:
+    """Load pockets from cache or run Reader Agent (with Supabase text fallback)."""
+    cached = pocket_cache.get(file_id, lang)
+    if cached:
+        return cached
+    text = text_cache.get(file_id)
+    if not text:
+        from services.supabase_client import get_upload_sync
+        record = get_upload_sync(file_id)
+        if not record:
+            raise HTTPException(status_code=404, detail=f"File '{file_id}' not found. Please re-upload.")
+        text = record.get("text_content", "") or ""
+        if text:
+            text_cache.store(file_id, text)
+    if not text:
+        raise HTTPException(status_code=404, detail=f"File '{file_id}' not found. Please re-upload.")
+    pockets = agent_service.read_document(text, lang)
+    pocket_cache.store(file_id, pockets, lang)
+    return pockets
 
 
 # ── PPTX builders ──────────────────────────────────────────────────────────
@@ -42,6 +68,47 @@ _THEME_COLORS = {
     "violet": {"bg": (0xED, 0xE7, 0xF6), "accent": (0x73, 0x44, 0xB8), "text": (0x31, 0x00, 0x77)},
 }
 _DEFAULT_THEME = _THEME_COLORS["teal"]
+
+
+def _embed_visual_or_caption(
+    slide,
+    visual_hint: str,
+    title: str,
+    topic: str,
+    left_in: float,
+    top_in: float,
+    width_in: float,
+    height_in: float,
+) -> None:
+    """Embed AI illustration in PPTX, or fall back to caption text."""
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from services.slide_images import fetch_slide_image_bytes
+
+    hint = (visual_hint or "").strip()
+    label = hint or (title or "").strip()
+    if not label:
+        return
+    data = fetch_slide_image_bytes(hint or title, title, topic)
+    if data:
+        slide.shapes.add_picture(
+            io.BytesIO(data),
+            Inches(left_in),
+            Inches(top_in),
+            width=Inches(width_in),
+            height=Inches(height_in),
+        )
+        return
+    box = slide.shapes.add_textbox(
+        Inches(left_in), Inches(top_in), Inches(width_in), Inches(height_in * 0.45)
+    )
+    tf = box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = "🖼  " + label
+    p.font.size = Pt(11)
+    p.font.italic = True
+    p.font.color.rgb = RGBColor(0x75, 0x75, 0x75)
 
 
 def _build_adhd_pptx(slides: list[dict], topic: str = "") -> bytes:
@@ -113,17 +180,16 @@ def _build_adhd_pptx(slides: list[dict], topic: str = "") -> bytes:
             para.font.color.rgb = TEXT
             para.space_before = Pt(10)
 
-        # ── Visual hint (right column) ──
-        hint = s.get("visual_hint", "")
-        if hint:
-            vh = slide.shapes.add_textbox(Inches(9.0), Inches(2.0), Inches(4.0), Inches(3.5))
-            vf = vh.text_frame
-            vf.word_wrap = True
-            vp = vf.paragraphs[0]
-            vp.text = "🖼  " + hint
-            vp.font.size = Pt(13)
-            vp.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
-            vp.font.italic = True
+        _embed_visual_or_caption(
+            slide,
+            s.get("visual_hint", ""),
+            s.get("title", ""),
+            topic,
+            8.8,
+            1.75,
+            4.0,
+            2.85,
+        )
 
         # ── Focus question box (bottom) ──
         fq = s.get("focus_question", "")
@@ -247,17 +313,16 @@ def _build_autism_pptx(slides: list[dict], topic: str = "") -> bytes:
         wmp.font.italic = True
         wmp.font.color.rgb = BODY
 
-        # ── Visual description (bottom-right) ──
-        vd = s.get("visual_description", "")
-        if vd:
-            vb = slide.shapes.add_textbox(Inches(9.5), Inches(2.5), Inches(3.5), Inches(2.5))
-            vf = vb.text_frame
-            vf.word_wrap = True
-            vp = vf.paragraphs[0]
-            vp.text = "[ Diagram ]\n" + vd
-            vp.font.size = Pt(11)
-            vp.font.color.rgb = RGBColor(0x75, 0x75, 0x75)
-            vp.font.italic = True
+        _embed_visual_or_caption(
+            slide,
+            s.get("visual_description", ""),
+            s.get("heading", ""),
+            topic,
+            9.2,
+            2.35,
+            3.6,
+            2.65,
+        )
 
     buf = io.BytesIO()
     prs.save(buf)
@@ -286,23 +351,18 @@ async def read_document(req: ReadRequest):
     Extracts structured learning pockets from the uploaded file.
     Result is cached by file_id so subsequent generate calls are fast.
     """
-    cached = pocket_cache.get(req.file_id)
+    cached = pocket_cache.get(req.file_id, req.lang)
     if cached:
         return cached
 
-    text = text_cache.get(req.file_id)
-    if not text:
-        raise HTTPException(404, f"File '{req.file_id}' not found. Please re-upload.")
-
-    pockets = await run_in_threadpool(agent_service.read_document, text, req.lang)
-    pocket_cache.store(req.file_id, pockets)
+    pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
     return pockets
 
 
 @router.get("/pockets/{file_id}")
-async def get_pockets(file_id: str):
+async def get_pockets(file_id: str, lang: IlmLang = "en"):
     """Return previously extracted pockets (from cache)."""
-    pockets = pocket_cache.get(file_id)
+    pockets = pocket_cache.get(file_id, lang)
     if not pockets:
         raise HTTPException(404, "Pockets not found. Call POST /agents/read first.")
     return pockets
@@ -314,13 +374,7 @@ async def generate_adhd_slides(req: AgentGenerateRequest):
     Slide Sorter (ADHD) — generates an ADHD-optimised PPTX from pockets.
     Uses the Orchestrator's pocket cache; re-reads the document if pockets are absent.
     """
-    pockets = pocket_cache.get(req.file_id)
-    if not pockets:
-        text = text_cache.get(req.file_id)
-        if not text:
-            raise HTTPException(404, f"File '{req.file_id}' not found.")
-        pockets = await run_in_threadpool(agent_service.read_document, text)
-        pocket_cache.store(req.file_id, pockets)
+    pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     job_id = str(uuid.uuid4())
     slides = await run_in_threadpool(agent_service.generate_adhd_slides, pockets, req.lang)
@@ -347,13 +401,7 @@ async def generate_autism_slides(req: AgentGenerateRequest):
     """
     Slide Sorter (Autism) — generates a structured, predictable PPTX from pockets.
     """
-    pockets = pocket_cache.get(req.file_id)
-    if not pockets:
-        text = text_cache.get(req.file_id)
-        if not text:
-            raise HTTPException(404, f"File '{req.file_id}' not found.")
-        pockets = await run_in_threadpool(agent_service.read_document, text)
-        pocket_cache.store(req.file_id, pockets)
+    pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     job_id = str(uuid.uuid4())
     slides = await run_in_threadpool(agent_service.generate_autism_slides, pockets, req.lang)
@@ -381,13 +429,7 @@ async def transcribe(req: AgentGenerateRequest):
     Transcriber Agent — generates a flowing audio narrative script from pockets
     and renders it to an MP3 via TTS. Returns script JSON + audio download URL.
     """
-    pockets = pocket_cache.get(req.file_id)
-    if not pockets:
-        text = text_cache.get(req.file_id)
-        if not text:
-            raise HTTPException(404, f"File '{req.file_id}' not found.")
-        pockets = await run_in_threadpool(agent_service.read_document, text)
-        pocket_cache.store(req.file_id, pockets)
+    pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     script    = await run_in_threadpool(agent_service.transcribe_to_audio, pockets, req.lang)
     full_text = _flatten_script(script)
@@ -417,7 +459,7 @@ async def transcribe(req: AgentGenerateRequest):
 class CuriousCriticRequest(BaseModel):
     file_id: str
     condition: str = "general"   # adhd | dyslexia | autism | general
-    lang: str = "en"
+    lang: IlmLang = "en"
 
 
 class IlmuistRequest(BaseModel):
@@ -425,12 +467,19 @@ class IlmuistRequest(BaseModel):
     history: list[dict] = []
     file_id: str | None = None
     role: str = "teacher"   # "teacher" | "student"
+    lang: IlmLang = "en"
+    filename: str | None = None
+    topic: str | None = None
+    pocket_count: int | None = None
+    generated_outputs: list[str] = []
+    app_page: str = ""
+    app_context: str = ""
 
 
 class StudentChatActionRequest(BaseModel):
     file_id: str
     action: str   # summarize | quiz | vocab | study_plan | focus_tip
-    lang: str = "en"
+    lang: IlmLang = "en"
     mood: str = "okay"
 
 
@@ -534,18 +583,16 @@ def _build_dyslexia_pptx(slides: list[dict], topic: str = "") -> bytes:
             kp2.font.color.rgb = DARK
             kp2.font.name = "Arial"
 
-        # ── Visual hint ──
-        vh = s.get("visual_hint", "")
-        if vh:
-            vhb = slide.shapes.add_textbox(Inches(9.6), Inches(3.0), Inches(3.4), Inches(2.2))
-            vhf = vhb.text_frame
-            vhf.word_wrap = True
-            vhp = vhf.paragraphs[0]
-            vhp.text = "[ Image ]\n" + vh
-            vhp.font.size = Pt(11)
-            vhp.font.italic = True
-            vhp.font.color.rgb = RGBColor(0x70, 0x70, 0x70)
-            vhp.font.name = "Arial"
+        _embed_visual_or_caption(
+            slide,
+            s.get("visual_hint", ""),
+            s.get("title", ""),
+            topic,
+            9.4,
+            2.75,
+            3.5,
+            2.45,
+        )
 
         # ── Reading note strip (bottom) ──
         rn = s.get("reading_note", "")
@@ -573,13 +620,7 @@ async def generate_dyslexia_slides(req: AgentGenerateRequest):
     Slide Sorter (Dyslexia) — generates a dyslexia-friendly PPTX from pockets.
     Arial font, off-white background, generous spacing, key phrase highlights.
     """
-    pockets = pocket_cache.get(req.file_id)
-    if not pockets:
-        text = text_cache.get(req.file_id)
-        if not text:
-            raise HTTPException(404, f"File '{req.file_id}' not found.")
-        pockets = await run_in_threadpool(agent_service.read_document, text)
-        pocket_cache.store(req.file_id, pockets)
+    pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     job_id = str(uuid.uuid4())
     slides = await run_in_threadpool(agent_service.generate_dyslexia_slides, pockets, req.lang)
@@ -606,13 +647,7 @@ async def generate_worksheet(req: CuriousCriticRequest):
     """
     Curious Critic — generates a condition-tailored worksheet from pockets.
     """
-    pockets = pocket_cache.get(req.file_id)
-    if not pockets:
-        text = text_cache.get(req.file_id)
-        if not text:
-            raise HTTPException(404, f"File '{req.file_id}' not found.")
-        pockets = await run_in_threadpool(agent_service.read_document, text)
-        pocket_cache.store(req.file_id, pockets)
+    pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     worksheet = await run_in_threadpool(
         agent_service.curious_critic_worksheet, pockets, req.condition, req.lang
@@ -629,13 +664,7 @@ async def generate_quiz(req: CuriousCriticRequest):
     """
     Curious Critic — generates a condition-tailored quiz from pockets.
     """
-    pockets = pocket_cache.get(req.file_id)
-    if not pockets:
-        text = text_cache.get(req.file_id)
-        if not text:
-            raise HTTPException(404, f"File '{req.file_id}' not found.")
-        pockets = await run_in_threadpool(agent_service.read_document, text)
-        pocket_cache.store(req.file_id, pockets)
+    pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     quiz = await run_in_threadpool(
         agent_service.curious_critic_quiz, pockets, req.condition, req.lang
@@ -645,6 +674,18 @@ async def generate_quiz(req: CuriousCriticRequest):
         "condition":  req.condition,
         "topic":      pockets.get("topic", ""),
     }
+
+
+def _normalize_observer_rows(rows: list) -> list[dict]:
+    out: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        item = dict(row)
+        if "coverage_pct" not in item and "content_coverage_pct" in item:
+            item["coverage_pct"] = item["content_coverage_pct"]
+        out.append(item)
+    return out
 
 
 @router.post("/student-observer")
@@ -659,7 +700,7 @@ async def student_observer(req: StudentObserverRequest):
         req.session_events,
         req.topic,
     )
-    return {"students": analysis, "topic": req.topic}
+    return {"students": _normalize_observer_rows(analysis), "topic": req.topic}
 
 
 @router.post("/student-chat-action")
@@ -668,7 +709,7 @@ async def student_chat_action(req: StudentChatActionRequest):
     from services import text_cache, pocket_cache
 
     text = text_cache.get(req.file_id)
-    pockets = pocket_cache.get(req.file_id)
+    pockets = pocket_cache.get(req.file_id, req.lang)
     if not text:
         from services.supabase_client import get_upload_sync
         record = await run_in_threadpool(get_upload_sync, req.file_id)
@@ -690,21 +731,38 @@ async def student_chat_action(req: StudentChatActionRequest):
 @router.post("/ilmuist")
 async def ilmuist_chat(req: IlmuistRequest):
     """
-    Ilmuist — context-aware Manglish AI guide.
+    Ilm Educator / ilmuist — context-aware teaching guide (YTL ILMU AI).
     Optionally enriches context with pocket_cache data if file_id provided.
     """
     context: dict = {}
 
+    if req.filename:
+        context["filename"] = req.filename
+    if req.topic:
+        context["topic"] = req.topic
+    if req.pocket_count is not None:
+        context["pocket_count"] = req.pocket_count
+    if req.generated_outputs:
+        context["generated_outputs"] = req.generated_outputs
+    if req.app_page:
+        context["app_page"] = req.app_page
+    elif req.role == "student":
+        context["app_page"] = "student"
+    else:
+        context["app_page"] = "educator"
+    if req.app_context:
+        context["app_context"] = req.app_context
+
     if req.file_id:
-        pockets = pocket_cache.get(req.file_id)
+        pockets = pocket_cache.get(req.file_id, req.lang)
         if pockets:
             pocket_list = pockets.get("pockets", [])
-            context["topic"]        = pockets.get("topic", "")
-            context["summary"]      = pockets.get("summary", "")
-            context["pocket_count"] = len(pocket_list)
+            context.setdefault("topic", pockets.get("topic", ""))
+            context.setdefault("summary", pockets.get("summary", ""))
+            context.setdefault("pocket_count", len(pocket_list))
 
     response = await run_in_threadpool(
-        agent_service.ilmuist_chat, req.message, req.history, context, req.role
+        agent_service.ilmuist_chat, req.message, req.history, context, req.role, req.lang
     )
     return response
 
@@ -808,14 +866,16 @@ def _build_student_adhd_pptx(slides: list[dict], topic: str = "") -> bytes:
             lbl.text = "🗺  Map"; lbl.font.size = Pt(10); lbl.font.bold = True; lbl.font.color.rgb = ACCENT
             _bionic_runs(mhf.add_paragraph(), mmh, 12, TEXT)
 
-        # Visual hint (right column below map)
-        vh = s.get("visual_hint", "")
-        if vh:
-            vhb = slide.shapes.add_textbox(Inches(9.1), Inches(3.05), Inches(3.9), Inches(1.8))
-            vhf = vhb.text_frame; vhf.word_wrap = True
-            vhp = vhf.paragraphs[0]
-            vhp.text = "🖼  " + vh; vhp.font.size = Pt(12); vhp.font.italic = True
-            vhp.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
+        _embed_visual_or_caption(
+            slide,
+            s.get("visual_hint", ""),
+            s.get("title", ""),
+            topic,
+            9.0,
+            2.95,
+            3.9,
+            2.35,
+        )
 
         # Focus question box
         fq = s.get("focus_question", "")
@@ -911,15 +971,16 @@ def _build_student_autism_pptx(slides: list[dict], topic: str = "") -> bytes:
         wmb.text_frame.word_wrap = True
         _bionic_runs(wmb.text_frame.paragraphs[0], s.get("why_it_matters", ""), 14, BODY)
 
-        # Visual description
-        vd = s.get("visual_description", "")
-        if vd:
-            vb = slide.shapes.add_textbox(Inches(9.6), Inches(2.55), Inches(3.4), Inches(2.2))
-            vf = vb.text_frame; vf.word_wrap = True
-            vp = vf.paragraphs[0]
-            vp.text = "[ Diagram ]\n" + vd
-            vp.font.size = Pt(11); vp.font.italic = True
-            vp.font.color.rgb = RGBColor(0x75, 0x75, 0x75)
+        _embed_visual_or_caption(
+            slide,
+            s.get("visual_description", ""),
+            s.get("heading", ""),
+            topic,
+            9.4,
+            2.45,
+            3.5,
+            2.55,
+        )
 
     buf = io.BytesIO(); prs.save(buf); return buf.getvalue()
 
@@ -1027,13 +1088,7 @@ def _build_mindmap_pptx(mindmap: dict, topic: str = "") -> bytes:
 @router.post("/student-adhd-slides")
 async def generate_student_adhd_slides(req: AgentGenerateRequest):
     """Slide Sorter (Student ADHD): bionic reading, fun facts, mind map hints."""
-    pockets = pocket_cache.get(req.file_id)
-    if not pockets:
-        text = text_cache.get(req.file_id)
-        if not text:
-            raise HTTPException(404, f"File '{req.file_id}' not found.")
-        pockets = await run_in_threadpool(agent_service.read_document, text)
-        pocket_cache.store(req.file_id, pockets)
+    pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     job_id = str(uuid.uuid4())
     slides = await run_in_threadpool(agent_service.generate_student_adhd_slides, pockets, req.lang)
@@ -1052,13 +1107,7 @@ async def generate_student_adhd_slides(req: AgentGenerateRequest):
 @router.post("/student-autism-slides")
 async def generate_student_autism_slides(req: AgentGenerateRequest):
     """Slide Sorter (Student Autism): bionic reading, clean predictable layout."""
-    pockets = pocket_cache.get(req.file_id)
-    if not pockets:
-        text = text_cache.get(req.file_id)
-        if not text:
-            raise HTTPException(404, f"File '{req.file_id}' not found.")
-        pockets = await run_in_threadpool(agent_service.read_document, text)
-        pocket_cache.store(req.file_id, pockets)
+    pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     job_id = str(uuid.uuid4())
     slides = await run_in_threadpool(agent_service.generate_student_autism_slides, pockets, req.lang)
@@ -1077,13 +1126,7 @@ async def generate_student_autism_slides(req: AgentGenerateRequest):
 @router.post("/visual-mindmap")
 async def generate_visual_mindmap(req: AgentGenerateRequest):
     """Visualizer Agent: mind map structure + fun facts + PPTX download."""
-    pockets = pocket_cache.get(req.file_id)
-    if not pockets:
-        text = text_cache.get(req.file_id)
-        if not text:
-            raise HTTPException(404, f"File '{req.file_id}' not found.")
-        pockets = await run_in_threadpool(agent_service.read_document, text)
-        pocket_cache.store(req.file_id, pockets)
+    pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     job_id  = str(uuid.uuid4())
     mindmap = await run_in_threadpool(agent_service.generate_visual_mindmap, pockets, req.lang)
@@ -1102,13 +1145,7 @@ async def generate_visual_mindmap(req: AgentGenerateRequest):
 @router.post("/examiner-worksheet")
 async def generate_examiner_worksheet(req: AgentGenerateRequest):
     """Examiner Agent: self-study worksheet with fill-blanks, T/F, matching, challenge."""
-    pockets = pocket_cache.get(req.file_id)
-    if not pockets:
-        text = text_cache.get(req.file_id)
-        if not text:
-            raise HTTPException(404, f"File '{req.file_id}' not found.")
-        pockets = await run_in_threadpool(agent_service.read_document, text)
-        pocket_cache.store(req.file_id, pockets)
+    pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     try:
         worksheet = await run_in_threadpool(agent_service.generate_examiner_worksheet, pockets, req.lang)

@@ -34,7 +34,7 @@ export function TranslatingOverlay() {
         <div className="absolute inset-2.5 rounded-full border-[3px] border-dust/25 border-b-dust animate-spin" style={{ animationDuration: "1.4s", animationDirection: "reverse" }} />
         <div className="absolute inset-5 rounded-full border-[3px] border-honey/35 border-t-honey animate-spin" style={{ animationDuration: "0.8s" }} />
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-xl text-bark-deep select-none">✦</span>
+          <img src="/ilmio-logo-mark.png" alt="" className="w-8 h-8 object-contain" aria-hidden />
         </div>
       </div>
 

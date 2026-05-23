@@ -26,31 +26,13 @@ from typing import Any
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from services.llm_client import client as _client, MODEL as _MODEL
-
-
-# ── Language support ──────────────────────────────────────────────────────
-
-LANGUAGE_NAMES = {
-    "en": "English",
-    "ms": "Bahasa Melayu",
-    "zh": "Mandarin Chinese (Simplified)",
-    "ta": "Tamil",
-}
-
-def _lang_instruction(lang: str) -> str:
-    name = LANGUAGE_NAMES.get(lang, "English")
-    if lang == "en":
-        return ""
-    return (
-        f"\n\nIMPORTANT: Generate ALL output text (titles, bullets, narratives, labels, "
-        f"descriptions) in {name}. JSON keys must remain in English. "
-        f"Only the values (strings) should be in {name}."
-    )
+from services.lang_prefs import LANGUAGE_NAMES, chat_lang_instruction, lang_instruction as _lang_instruction
+from services.app_guide import format_app_context, actions_for_role
 
 
 # ── Shared helpers ─────────────────────────────────────────────────────────
 
-def _ask(system: str, user: str, max_tokens: int = 4096) -> str:
+def _ask(system: str, user: str, max_tokens: int = 4096, temperature: float = 0.3) -> str:
     resp = _client.chat.completions.create(
         model=_MODEL,
         max_tokens=max_tokens,
@@ -58,7 +40,7 @@ def _ask(system: str, user: str, max_tokens: int = 4096) -> str:
             {"role": "system", "content": system},
             {"role": "user",   "content": user},
         ],
-        temperature=0.3,
+        temperature=temperature,
     )
     return resp.choices[0].message.content or ""
 
@@ -121,7 +103,11 @@ Rules:
 DOCUMENT:
 {text[:6000]}
 {_lang_instruction(lang)}"""
-    return _parse_json(_ask(system, user, max_tokens=3000))
+    result = _parse_json(_ask(system, user, max_tokens=3000))
+    if isinstance(result, dict):
+        result["truncated"] = len(text) > 6000
+        result["lang"] = lang
+    return result
 
 
 # ── Slide Sorter — ADHD ────────────────────────────────────────────────────
@@ -480,8 +466,18 @@ Return JSON array:
 
 # ── ilmuist ────────────────────────────────────────────────────────────────
 
-def ilmuist_chat(message: str, history: list[dict], context: dict, role: str = "teacher") -> dict:
+def ilmuist_chat(
+    message: str,
+    history: list[dict],
+    context: dict,
+    role: str = "teacher",
+    lang: str = "en",
+) -> dict:
     """ilmuist: AI guide — teacher mode speaks Manglish, student mode speaks Gen Z."""
+    app_page = context.get("app_page", "educator" if role == "teacher" else "student")
+    app_ctx = context.get("app_context", "")
+    app_guide = format_app_context(app_page, app_ctx)
+
     site_knowledge = (
         "ilm.io features:\n"
         "- Upload: PDF, DOCX, MP3, WAV, JPG, PNG\n"
@@ -493,42 +489,55 @@ def ilmuist_chat(message: str, history: list[dict], context: dict, role: str = "
         "- Transcriber: story-driven script + downloadable MP3\n"
         "- Curious Critic: worksheets + quizzes per condition (ADHD/Dyslexia/Autism/General)\n"
         "- Student Observer: identifies who needs more teacher attention\n"
-        "- Languages: English, Bahasa Melayu, Mandarin, Tamil\n"
+        "- Languages: English, Bahasa Melayu, Mandarin, Tamil, Malaysian Rojak/Manglish\n"
         "- Powered by YTL ILMU AI nemo-super\n"
     )
+    lang_extra = _lang_instruction(lang)
     ctx_parts = []
-    if context.get("filename"):    ctx_parts.append(f"Uploaded: {context['filename']}")
+    if context.get("filename"):    ctx_parts.append(f"Uploaded file: {context['filename']}")
     if context.get("topic"):       ctx_parts.append(f"Topic: {context['topic']}")
-    if context.get("summary"):     ctx_parts.append(f"Summary: {context['summary']}")
-    if context.get("pocket_count"):ctx_parts.append(f"Concepts extracted: {context['pocket_count']}")
+    if context.get("summary"):     ctx_parts.append(f"Summary: {context['summary'][:600]}")
+    if context.get("pocket_count"):ctx_parts.append(f"Concept pockets extracted: {context['pocket_count']}")
     if context.get("generated_outputs"):
-        ctx_parts.append(f"Generated this session: {', '.join(context['generated_outputs'])}")
+        ctx_parts.append(f"Already generated this session: {', '.join(context['generated_outputs'])}")
 
-    ctx_block = ("\nSession context:\n" + "\n".join(ctx_parts)) if ctx_parts else ""
+    ctx_block = ("\nTeacher's current session:\n" + "\n".join(ctx_parts)) if ctx_parts else ""
 
     if role == "student":
         system = (
-            "You are ilmuist — Ilm's study buddy on ilm.io, powered by YTL ILMU AI (Malaysia). "
+            "You are Ilm — Ilm's study buddy on ilm.io, powered by YTL ILMU AI (Malaysia). "
             "Talk like a warm Malaysian friend or kakak/abang — supportive, never lecturing. "
             "Natural Manglish is welcome: lah, ah, kan, boleh, aiyoo, confirm — don't force every sentence. "
             "Use Malaysian examples when they help (school, mamak, PT3/SPM, everyday life). "
             "Keep replies SHORT — 2-3 sentences max, 1-2 emojis max. "
             "Use bullet points (•) not long paragraphs. Max 3 bullets, ~10 words each. "
-            "Match the student's language (English, BM, 中文, தமிழ்).\n\n"
-            + site_knowledge + ctx_block
+            "Match the student's language (English, BM, 中文, தமிழ், rojak/Manglish).\n"
+            "You ALSO help navigate ilm.io (Controls, language, music, upload, mood, focus) — not only study.\n\n"
+            + site_knowledge + "\n" + app_guide + ctx_block + lang_extra
         )
     else:
+        voice = (
+            "Natural Malaysian Manglish — colleague-to-colleague, still professional."
+            if lang == "rojak"
+            else "Warm but professional — like a trusted senior teacher or MOE inclusion advisor. "
+            "Light Manglish (lah, kan) only if language is English or rojak."
+        )
         system = (
-            "You are ilmuist — the AI guide for ilm.io, a neurodivergent learning platform for Malaysian classrooms. "
-            "You have full technical knowledge of the site and you're aware of the teacher's current session. "
-            "Personality: fun, warm, quirky — like that cool Malaysian teacher everyone loves. "
-            "Mix in Manglish naturally: lah, lor, mah, kan, aiyo, wah, boleh, confirm. "
-            "Not every sentence — just enough to feel like a real Malaysian learning kakak/abang. "
-            "Keep replies SHORT: max 3-4 sentences. Teachers are busy lah. "
-            "When explaining concepts use bullet points (•) rather than long paragraphs. "
-            "Max 3 bullets per reply. Keep each bullet under 12 words. "
-            "Give specific neurodivergent teaching advice when asked.\n\n"
-            + site_knowledge + ctx_block
+            "You are Ilm Educator — the AI teaching guide on ilm.io, powered by YTL ILMU AI (Malaysia).\n\n"
+            "YOUR ROLE:\n"
+            "- Help teachers use ilm.io: uploads, Reader concept pockets, ADHD/Autism/Dyslexia slide outputs, "
+            "audio transcriber scripts, Curious Critic worksheets & quizzes, Student Observer analytics.\n"
+            "- Recommend which output format fits ADHD, dyslexia, autism, or mixed classes.\n"
+            "- Give practical, evidence-informed neurodivergent-inclusive teaching tips for Malaysian classrooms "
+            "(KSSM, SK/SMK, OKU, PdPR, PBS).\n"
+            "- Use the teacher's session context (topic, pockets, what they already generated).\n\n"
+            f"VOICE: {voice}\n"
+            "- NOT a student study buddy. No Gen Z slang. No 'As an AI assistant'.\n"
+            "- Short: max 4 sentences OR up to 4 bullet points (•), each under 14 words.\n"
+            "- End with a clear next step when helpful.\n"
+            "- Help teachers use the app UI (Controls, class panel, uploads, languages) — not only pedagogy.\n"
+            f"{chat_lang_instruction(lang)}\n\n"
+            + site_knowledge + "\n" + app_guide + ctx_block + lang_extra
         )
 
     messages = [{"role": "system", "content": system}]
@@ -536,17 +545,25 @@ def ilmuist_chat(message: str, history: list[dict], context: dict, role: str = "
         messages.append({"role": m["role"], "content": m["content"]})
     messages.append({"role": "user", "content": message})
 
+    chat_temp = 0.55 if role == "teacher" else 0.65
+    max_tok = 420 if role == "teacher" else 300
     resp = _client.chat.completions.create(
-        model=_MODEL, max_tokens=300, messages=messages, temperature=0.65,
+        model=_MODEL, max_tokens=max_tok, messages=messages, temperature=chat_temp,
     )
     reply = resp.choices[0].message.content or ""
 
+    sugg_system = (
+        "Output ONLY a JSON array of 2 short follow-up questions a Malaysian teacher might ask Ilm Educator. "
+        "Each under 8 words. Examples: 'ADHD slide tips', 'Explain Student Observer', 'Worksheet for dyslexia'."
+        if role == "teacher"
+        else "Output ONLY a JSON array of 2 short follow-up questions. Each under 8 words."
+    )
     try:
         sugg_resp = _client.chat.completions.create(
             model=_MODEL, max_tokens=100,
             messages=[
-                {"role": "system", "content": "Output ONLY a JSON array of 2 short follow-up questions. Each under 8 words."},
-                {"role": "user",   "content": f"Teacher: {message}\nilmuist: {reply}"},
+                {"role": "system", "content": sugg_system},
+                {"role": "user",   "content": f"Teacher: {message}\nIlm Educator: {reply}" if role == "teacher" else f"Student: {message}\nIlm: {reply}"},
             ],
             temperature=0.4,
         )
@@ -554,7 +571,47 @@ def ilmuist_chat(message: str, history: list[dict], context: dict, role: str = "
     except Exception:
         suggestions = []
 
-    return {"message": reply, "suggestions": suggestions}
+    actions = _suggest_ui_actions(message, reply, app_page, role)
+
+    return {"message": reply, "suggestions": suggestions, "actions": actions}
+
+
+def _suggest_ui_actions(user_msg: str, reply: str, page: str, role: str) -> list[dict]:
+    """0-2 tap-to-run UI actions when the conversation implies a setting change."""
+    valid = set(actions_for_role(page, role))
+    if not valid:
+        return []
+    try:
+        resp = _client.chat.completions.create(
+            model=_MODEL,
+            max_tokens=140,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Output ONLY a JSON array (0-2 items) of UI actions for ilm.io. "
+                        f'Each: {{"id": "<allowed id>", "label": "<max 5 words>"}}. '
+                        f"Allowed ids: {', '.join(sorted(valid))}. "
+                        "Return [] if no button would help."
+                    ),
+                },
+                {"role": "user", "content": f"User: {user_msg}\nIlm: {reply}"},
+            ],
+            temperature=0.2,
+        )
+        raw = _parse_json(resp.choices[0].message.content or "[]")
+        if not isinstance(raw, list):
+            return []
+        out: list[dict] = []
+        for item in raw:
+            if isinstance(item, dict) and item.get("id") in valid:
+                out.append({
+                    "id": str(item["id"]),
+                    "label": str(item.get("label", item["id"]))[:48],
+                })
+        return out[:2]
+    except Exception:
+        return []
 
 
 # ── Student chat actions (functional Ilm — not free chat only) ─────────────
@@ -584,33 +641,41 @@ def student_chat_action(
         )
 
     mood_note = {
-        "good": "Student is in a good mood — energetic tone.",
-        "tired": "Student is tired — very short, gentle.",
-        "stressed": "Student is stressed — calm, reassuring.",
-    }.get(mood, "Neutral supportive tone.")
+        "good": "Student feels good — upbeat kawan energy.",
+        "tired": "Student is tired — super short, gentle, no guilt.",
+        "stressed": "Student is stressed — calm first, one tiny step only.",
+    }.get(mood, "Talk like a supportive Malaysian friend.")
 
     templates = {
         "summarize": (
             "Create a quick revision summary from the material. "
-            "Output ONLY JSON: {\"title\": str, \"bullets\": [str], \"emoji\": str}. "
-            "Max 5 bullets, each max 14 words. Friendly for ADHD/dyslexia readers."
+            "Include voice_line: one casual Manglish sentence Ilm says before the list. "
+            'Output ONLY JSON: {"voice_line": str, "title": str, "bullets": [str], "emoji": str}. '
+            "Max 5 bullets, each max 14 words, simple words only."
         ),
         "quiz": (
             "Create a mini quiz from ONE important concept in the material. "
-            "Output ONLY JSON: {\"concept\": str, \"questions\": [{\"question\": str, \"options\": [str,str,str], "
-            "\"correct_index\": 0|1|2, \"hint\": str}]}. Exactly 3 questions, simple language."
+            "Include voice_line: playful challenge from Ilm (1 sentence). "
+            'Output ONLY JSON: {"voice_line": str, "concept": str, "questions": [{"question": str, '
+            '"options": [str,str,str], "correct_index": 0|1|2, "hint": str}]}. '
+            "Exactly 3 questions, conversational wording."
         ),
         "vocab": (
             "Pick the 4-5 hardest terms and explain simply with a tiny example. "
-            "Output ONLY JSON: {\"terms\": [{\"term\": str, \"definition\": str, \"example\": str, \"emoji\": str}]}."
+            "Include voice_line: friendly intro (1 sentence). "
+            'Output ONLY JSON: {"voice_line": str, "terms": [{"term": str, "definition": str, '
+            '"example": str, "emoji": str}]}.'
         ),
         "study_plan": (
             "Build a realistic tonight study plan in 3 chunks with breaks. "
-            "Output ONLY JSON: {\"steps\": [{\"title\": str, \"minutes\": int, \"task\": str, \"emoji\": str}]}."
+            "Include voice_line: encouraging opener (1 sentence, not robotic). "
+            'Output ONLY JSON: {"voice_line": str, "steps": [{"title": str, "minutes": int, '
+            '"task": str, "emoji": str}]}.'
         ),
         "focus_tip": (
             "Give ONE practical focus tip for studying this specific topic. "
-            "Output ONLY JSON: {\"tip\": str, \"why\": str, \"try_this\": str, \"emoji\": str}."
+            "Include voice_line: warm opener (1 sentence). "
+            'Output ONLY JSON: {"voice_line": str, "tip": str, "why": str, "try_this": str, "emoji": str}.'
         ),
     }
 
@@ -622,9 +687,9 @@ def student_chat_action(
         }
 
     system = (
-        "You are Ilm, the ilm.io study buddy for neurodivergent learners in Malaysia. "
-        "You are powered by YTL ILMU AI — use Malaysian context when helpful "
-        "(RM, local school life, simple Manglish okay: lah, kan, boleh). "
+        "You are Ilm — a Malaysian study buddy, NOT a formal tutor bot. "
+        "voice_line must sound like a real friend texting (Manglish okay: lah, kan, eh). "
+        "Structured fields stay clear and simple for ADHD/dyslexia readers. "
         f"{mood_note} Output ONLY valid JSON. "
         + _lang_instruction(lang)
     )
@@ -635,23 +700,25 @@ def student_chat_action(
         f"{templates[action]}"
     )
 
-    raw = _ask(system, user, max_tokens=1200)
+    raw = _ask(system, user, max_tokens=1200, temperature=0.78)
     try:
         payload = _parse_json(raw)
     except Exception:
         payload = {"raw": raw[:500]}
 
-    labels = {
-        "summarize": "Here's your quick summary",
-        "quiz": "Quick quiz — test yourself",
-        "vocab": "Key words decoded",
-        "study_plan": "Your study plan for tonight",
-        "focus_tip": "Focus tip for you",
+    fallback = {
+        "summarize": "Okay here's the cheat sheet for you lah 📋",
+        "quiz": "Jom try this quick quiz — no stress ah ❓",
+        "vocab": "These words look scary but actually boleh je 🔤",
+        "study_plan": "Tonight we take it slow slow, can one 📅",
+        "focus_tip": "One tip that might help you focus today 🎯",
     }
+    voice = payload.get("voice_line") if isinstance(payload, dict) else None
+    friendly_msg = (voice.strip() if isinstance(voice, str) and voice.strip() else None) or fallback.get(action, "Done lah ✦")
 
     return {
         "action": action,
-        "message": labels.get(action, "Done"),
+        "message": friendly_msg,
         "payload": payload,
     }
 

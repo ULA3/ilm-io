@@ -2,7 +2,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
 from models.schemas import WeeklyReport
@@ -52,7 +52,10 @@ async def generate_report():
         "recommendations": result["recommendations"],
         "download_url": f"/api/reports/{report_id}.pdf",
     }
-    await supabase_client.save_report(record)
+    try:
+        await supabase_client.save_report(record)
+    except Exception as exc:
+        raise HTTPException(502, f"Could not save report to Supabase: {exc}") from exc
 
     return WeeklyReport(
         id=report_id,
