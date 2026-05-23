@@ -1,0 +1,28 @@
+# Secrets
+.env
+backend/.env
+**/.env.local
+
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+
+# Node / Next
+node_modules/
+ai-teaching-assistant/.next/
+ai-teaching-assistant/out/
+backend/node_modules/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.claude/
+
+# Logs
+*.log
+backend/err.log
+backend/out.log
+backend/uvicorn_*.log

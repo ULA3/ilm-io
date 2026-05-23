@@ -1,0 +1,33 @@
+# Web framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.12
+
+# AI / LLM
+openai==1.57.0             # Groq (via openai-compat base_url) + Whisper transcription + TTS fallback
+
+# Document processing
+PyMuPDF==1.25.1            # PDF text + image extraction (fitz)
+python-docx==1.1.2         # DOCX support
+Pillow==11.0.0             # Image handling
+pytesseract==0.3.13        # OCR for scanned images
+
+# File generation / export
+python-pptx==1.0.2         # Generate .pptx slide files
+reportlab==4.2.5           # Generate styled PDFs
+openpyxl==3.1.5            # Excel export for analytics
+
+# TTS
+elevenlabs==1.9.0          # ElevenLabs TTS — high-quality audiobooks
+
+# Database
+supabase==2.10.0           # Supabase Python client (auth + storage + DB)
+
+# Utilities
+pydantic==2.10.3
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+httpx>=0.26,<0.28          # supabase 2.10 requires <0.28; openai + elevenlabs are fine with this range
+aiofiles==24.1.0
+tenacity==9.0.0            # Retry logic for AI calls
+structlog==24.4.0          # Structured logging

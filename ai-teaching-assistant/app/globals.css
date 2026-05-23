@@ -1,0 +1,177 @@
+@import "tailwindcss";
+
+/* ── Color tokens (light / dark) ──────────────── */
+:root {
+  --c-cream:     #F7F3EC;
+  --c-sand:      #EDE5D8;
+  --c-sand-mid:  #D4C5B5;
+  --c-parch:     #F0EAE0;
+  --c-bark:      #7A5C4A;
+  --c-bark-deep: #3D2B1F;
+  --c-bark-soft: #A08070;
+  --c-bark-faint:#C0A898;
+  --c-sage:      #8FA68E;
+  --c-sage-lo:   #DCE8DB;
+  --c-sage-mid:  #C4D4C3;
+  --c-sage-hi:   #5E7D5C;
+  --c-terra:     #C27D6E;
+  --c-terra-lo:  #F5DDD9;
+  --c-terra-mid: #E8C4BC;
+  --c-terra-hi:  #8B4D40;
+  --c-dust:      #7B9BAD;
+  --c-dust-lo:   #D8E5ED;
+  --c-dust-mid:  #C0D3DF;
+  --c-dust-hi:   #4D6F82;
+  --c-honey:     #D4A853;
+  --c-honey-lo:  #F5E9C8;
+}
+
+html.dark {
+  --c-cream:     #1C1915;
+  --c-sand:      #272218;
+  --c-sand-mid:  #352E25;
+  --c-parch:     #21201A;
+  --c-bark:      #C0A890;
+  --c-bark-deep: #EDE5D8;
+  --c-bark-soft: #A09080;
+  --c-bark-faint:#706050;
+  --c-sage:      #6A8869;
+  --c-sage-lo:   #1C2C1C;
+  --c-sage-mid:  #263826;
+  --c-sage-hi:   #84A882;
+  --c-terra:     #9E6858;
+  --c-terra-lo:  #2C1C18;
+  --c-terra-mid: #3E2922;
+  --c-terra-hi:  #C07060;
+  --c-dust:      #5A7A8E;
+  --c-dust-lo:   #182630;
+  --c-dust-mid:  #243445;
+  --c-dust-hi:   #72A0B8;
+  --c-honey:     #B08835;
+  --c-honey-lo:  #2A2010;
+}
+
+@theme {
+  /* ── Earthy neutrals ── */
+  --color-cream:    var(--c-cream);
+  --color-sand:     var(--c-sand);
+  --color-sand-mid: var(--c-sand-mid);
+  --color-parch:    var(--c-parch);
+
+  /* ── Bark (warm brown) scale ── */
+  --color-bark:      var(--c-bark);
+  --color-bark-deep: var(--c-bark-deep);
+  --color-bark-soft: var(--c-bark-soft);
+  --color-bark-faint:var(--c-bark-faint);
+
+  /* ── Sage (green) scale ── */
+  --color-sage:     var(--c-sage);
+  --color-sage-lo:  var(--c-sage-lo);
+  --color-sage-mid: var(--c-sage-mid);
+  --color-sage-hi:  var(--c-sage-hi);
+
+  /* ── Terra (terracotta) scale ── */
+  --color-terra:     var(--c-terra);
+  --color-terra-lo:  var(--c-terra-lo);
+  --color-terra-mid: var(--c-terra-mid);
+  --color-terra-hi:  var(--c-terra-hi);
+
+  /* ── Dust (blue) scale ── */
+  --color-dust:     var(--c-dust);
+  --color-dust-lo:  var(--c-dust-lo);
+  --color-dust-mid: var(--c-dust-mid);
+  --color-dust-hi:  var(--c-dust-hi);
+
+  /* ── Honey (warm accent) ── */
+  --color-honey:    var(--c-honey);
+  --color-honey-lo: var(--c-honey-lo);
+}
+
+@theme inline {
+  --font-sans:  var(--font-nunito);
+  --font-serif: var(--font-lora);
+}
+
+/* ── Base ──────────────────────────────────────── */
+body {
+  background-color: var(--c-cream);
+  color: var(--c-bark-deep);
+  font-family: var(--font-nunito, Nunito, system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, .display {
+  font-family: var(--font-lora, Lora, Georgia, serif);
+}
+
+/* ── Scrollbar ─────────────────────────────────── */
+::-webkit-scrollbar        { width: 5px; }
+::-webkit-scrollbar-track  { background: var(--c-sand); }
+::-webkit-scrollbar-thumb  { background: var(--c-bark-faint); border-radius: 10px; }
+
+/* ── Animations ────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes chatReveal {
+  from { opacity: 0; transform: translateY(18px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes shimmerSlide {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+@keyframes gentlePulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
+.animate-fade-up   { animation: fadeUp      0.45s ease forwards; }
+.animate-chat      { animation: chatReveal  0.3s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+.animate-pulse-dot { animation: gentlePulse 1.8s ease-in-out infinite; }
+
+.shimmer {
+  background: linear-gradient(90deg, var(--c-sand) 25%, var(--c-cream) 50%, var(--c-sand) 75%);
+  background-size: 200% 100%;
+  animation: shimmerSlide 1.6s ease-in-out infinite;
+}
+
+/* ── Drop-zone active state ─────────────────────── */
+.drop-active {
+  border-color: var(--c-sage) !important;
+  background-color: var(--c-sage-lo) !important;
+}
+
+/* ── Dark mode: cards with white bg → use parch ── */
+html.dark .bg-white {
+  background-color: var(--c-parch);
+}
+
+/* ── Accessibility: high contrast ─────────────── */
+body.high-contrast {
+  --c-cream:     #000000;
+  --c-sand:      #111111;
+  --c-parch:     #0d0d0d;
+  --c-bark-deep: #ffffff;
+  --c-bark-soft: #e0e0e0;
+  --c-bark-faint:#c0c0c0;
+  --c-sage:      #00cc88;
+  --c-sage-lo:   #003320;
+  --c-sage-hi:   #00ff99;
+  --c-honey:     #ffdd00;
+  --c-honey-lo:  #332200;
+}
+body.high-contrast .bg-white { background-color: #111111; }
+body.high-contrast .text-bark-deep { color: #ffffff; }
+
+/* ── Accessibility: reduce motion ─────────────── */
+body.reduce-motion *,
+body.reduce-motion *::before,
+body.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
+}
