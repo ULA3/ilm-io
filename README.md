@@ -258,7 +258,7 @@ Extensions: `uuid-ossp`, `pg_trgm` (fuzzy search).
 |---|---|
 | **ChatGPT** | Brainstorming product features, UX flows, and neurodiversity-informed design patterns |
 | **Gemini** | Cross-checking Malaysian education context, multilingual content, and competitor research |
-| **Grok** | Rapid iteration on naming, taglines, and hackathon pitch framing |
+| **Grok** | Rapid iteration on naming, taglines, and hackathon pitch framing, crosschecking statistics |
 
 ### Coding & implementation
 
