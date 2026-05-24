@@ -1091,7 +1091,10 @@ async def generate_student_adhd_slides(req: AgentGenerateRequest):
     pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     job_id = str(uuid.uuid4())
-    slides = await run_in_threadpool(agent_service.generate_student_adhd_slides, pockets, req.lang)
+    try:
+        slides = await run_in_threadpool(agent_service.generate_student_adhd_slides, pockets, req.lang)
+    except Exception as exc:
+        raise HTTPException(422, "Slide generation failed — please retry or upload a shorter section") from exc
     topic  = pockets.get("topic", "Slides")
     pptx   = await run_in_threadpool(_build_student_adhd_pptx, slides, topic)
 
@@ -1110,7 +1113,10 @@ async def generate_student_autism_slides(req: AgentGenerateRequest):
     pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     job_id = str(uuid.uuid4())
-    slides = await run_in_threadpool(agent_service.generate_student_autism_slides, pockets, req.lang)
+    try:
+        slides = await run_in_threadpool(agent_service.generate_student_autism_slides, pockets, req.lang)
+    except Exception as exc:
+        raise HTTPException(422, "Slide generation failed — please retry or upload a shorter section") from exc
     topic  = pockets.get("topic", "Slides")
     pptx   = await run_in_threadpool(_build_student_autism_pptx, slides, topic)
 
@@ -1129,7 +1135,10 @@ async def generate_visual_mindmap(req: AgentGenerateRequest):
     pockets = await run_in_threadpool(_get_pockets_sync, req.file_id, req.lang)
 
     job_id  = str(uuid.uuid4())
-    mindmap = await run_in_threadpool(agent_service.generate_visual_mindmap, pockets, req.lang)
+    try:
+        mindmap = await run_in_threadpool(agent_service.generate_visual_mindmap, pockets, req.lang)
+    except Exception as exc:
+        raise HTTPException(422, "Mind map generation failed — please retry") from exc
     topic   = pockets.get("topic", "Mind Map")
     pptx    = await run_in_threadpool(_build_mindmap_pptx, mindmap, topic)
 

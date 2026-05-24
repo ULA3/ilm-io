@@ -13,7 +13,7 @@ export type SlideFormatKind =
 
 export type EducatorOutputKind = "adhd" | "autism" | "dyslexia" | "transcribe";
 
-export type StudentOutputKind = "adhd" | "autism" | "dyslexia" | "mindmap" | "worksheet";
+export type StudentOutputKind = "adhd" | "autism" | "dyslexia" | "mindmap" | "worksheet" | "transcribe";
 
 /** @deprecated Use EducatorOutputKind */
 export type OutputKind = EducatorOutputKind;
@@ -201,7 +201,7 @@ export const ILM_FORMATS: Record<SlideFormatKind, IlmFormat> = {
     theme: AUDIO_THEME,
     studentColor: "border-sage-lo bg-white hover:border-sage hover:bg-sage-lo",
     studentActive: "border-sage bg-sage-lo",
-    usedIn: ["educator"],
+    usedIn: ["student", "educator"],
   },
 };
 
@@ -211,6 +211,7 @@ export const STUDENT_FORMAT_ORDER: StudentOutputKind[] = [
   "dyslexia",
   "mindmap",
   "worksheet",
+  "transcribe",
 ];
 
 export const EDUCATOR_FORMAT_ORDER: EducatorOutputKind[] = [

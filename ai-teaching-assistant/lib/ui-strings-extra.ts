@@ -11,6 +11,8 @@ export type ExtraUiCopy = {
     truncatedSub: string;
     genMessages: [string, string, string];
     journeyHint: string;
+    couldNotFinish: string;
+    backToSelection: string;
   };
   educator: {
     step1: string;
@@ -35,7 +37,10 @@ export type ExtraUiCopy = {
     openClassStep: string;
     readingFile: string;
     bestFor: string;
+    bestForAll: string;
     concepts: string;
+    couldNotFinish: string;
+    backToSelection: string;
   };
 };
 
@@ -45,8 +50,8 @@ const EN: ExtraUiCopy = {
     readerScanSub: "Extracting knowledge pockets. This takes about 15–30 seconds.",
     readerPhases: ["Reading content", "Identifying concepts", "Forming pockets"],
     ilmFormatHint: "Need a summary or quiz? Open Ilm (bottom right) for actions — not just chat.",
-    truncatedTitle: "Your document was long — we used the first part.",
-    truncatedSub: "For best results, try uploading shorter sections.",
+    truncatedTitle: "Large document — we read the key opening sections first.",
+    truncatedSub: "All formats work on this portion. Split into smaller uploads for full coverage.",
     genMessages: [
       "Reading your document…",
       "Adapting for your learning style…",
@@ -54,6 +59,8 @@ const EN: ExtraUiCopy = {
     ],
     journeyHint:
       "Choose a format in the main area. For a quick recap or quiz, use Ilm (✦) on the right.",
+    couldNotFinish: "Could not finish",
+    backToSelection: "← Back to selection",
   },
   educator: {
     step1: "1 · Upload",
@@ -72,17 +79,20 @@ const EN: ExtraUiCopy = {
     readerScanTitle: "Reader Agent is scanning your document…",
     readerScanSub: "Extracting knowledge pockets. This takes about 15–30 seconds.",
     readerPhases: ["Reading content", "Identifying concepts", "Forming pockets"],
-    truncatedTitle: "Your document was long — we used the first part.",
-    truncatedSub: "For best results, try uploading shorter sections.",
+    truncatedTitle: "Large document — we read the key opening sections first.",
+    truncatedSub: "All formats work on this portion. Split into smaller uploads for full coverage.",
     genMessages: [
       "Reading your document…",
       "Adapting for your learning style…",
       "Almost ready…",
     ],
-    openClassStep: "Step 1: Open My class and pick a student",
+    openClassStep: "Optional: open class panel to pick a student for personal tips",
     readingFile: "Reading file…",
     bestFor: "Best for",
+    bestForAll: "Best for whole class",
     concepts: "Concept pockets",
+    couldNotFinish: "Could not finish",
+    backToSelection: "← Back to selection",
   },
 };
 
@@ -97,6 +107,8 @@ const MS: ExtraUiCopy = {
     genMessages: ["Membaca dokumen…", "Menyesuaikan gaya pembelajaran…", "Hampir siap…"],
     journeyHint:
       "Pilih format di kawasan utama. Untuk ringkasan atau kuiz pantas, guna Ilm (✦) di kanan.",
+    couldNotFinish: "Tidak dapat siapkan",
+    backToSelection: "← Kembali ke pilihan",
   },
   educator: {
     step1: "1 · Muat naik",
@@ -118,10 +130,13 @@ const MS: ExtraUiCopy = {
     truncatedTitle: "Dokumen anda panjang — kami guna bahagian pertama.",
     truncatedSub: "Untuk hasil terbaik, muat naik bahagian yang lebih pendek.",
     genMessages: ["Membaca dokumen…", "Menyesuaikan…", "Hampir siap…"],
-    openClassStep: "Langkah 1: Buka Kelas saya dan pilih pelajar",
+    openClassStep: "Pilihan: buka panel kelas untuk tip peribadi pelajar",
     readingFile: "Membaca fail…",
     bestFor: "Terbaik untuk",
+    bestForAll: "Terbaik untuk kelas penuh",
     concepts: "Poket konsep",
+    couldNotFinish: "Tidak dapat siapkan",
+    backToSelection: "← Kembali ke pilihan",
   },
 };
 
@@ -135,6 +150,8 @@ const ZH: ExtraUiCopy = {
     truncatedSub: "为获得最佳效果，请尝试上传较短的章节。",
     genMessages: ["正在阅读文档…", "正在适配你的学习风格…", "快好了…"],
     journeyHint: "在主区域选择格式。快速回顾或测验请用右侧的 Ilm (✦)。",
+    couldNotFinish: "无法完成",
+    backToSelection: "← 返回选择",
   },
   educator: {
     step1: "1 · 上传",
@@ -156,10 +173,13 @@ const ZH: ExtraUiCopy = {
     truncatedTitle: "文档较长 — 我们使用了前面的部分。",
     truncatedSub: "建议上传较短的章节以获得最佳效果。",
     genMessages: ["正在阅读…", "正在适配…", "快好了…"],
-    openClassStep: "步骤 1：打开我的班级并选择学生",
+    openClassStep: "可选：打开班级面板为某位学生获取个性化建议",
     readingFile: "正在读取文件…",
     bestFor: "最适合",
+    bestForAll: "最适合全班",
     concepts: "概念口袋",
+    couldNotFinish: "无法完成",
+    backToSelection: "← 返回选择",
   },
 };
 
@@ -173,6 +193,8 @@ const TA: ExtraUiCopy = {
     truncatedSub: "சிறந்த முடிவுக்கு குறுகிய பகுதிகளைப் பதிவேற்றுங்கள்.",
     genMessages: ["ஆவணம் வாசிக்கிறது…", "கற்றல் பாணிக்கு மாற்றுகிறது…", "கிட்டத்தட்ட தயார்…"],
     journeyHint: "முதன்மை பகுதியில் வடிவத்தைத் தேர்ந்தெடுங்கள். விரைவு recap/quiz-க்கு Ilm (✦) பயன்படுத்துங்கள்.",
+    couldNotFinish: "Could not finish",
+    backToSelection: "← Back to selection",
   },
   educator: {
     step1: "1 · பதிவேற்றம்",
@@ -194,10 +216,13 @@ const TA: ExtraUiCopy = {
     truncatedTitle: "ஆவணம் நீளமாக இருந்தது — முதல் பகுதி பயன்படுத்தப்பட்டது.",
     truncatedSub: "குறுகிய பகுதிகளைப் பதிவேற்றுங்கள்.",
     genMessages: ["வாசிக்கிறது…", "மாற்றுகிறது…", "கிட்டத்தட்ட தயார்…"],
-    openClassStep: "படி 1: என் வகுப்பைத் திறந்து மாணவரைத் தேர்ந்தெடுக்கவும்",
+    openClassStep: "Optional: வகுப்பு panel — தனிப்பட்ட பரிந்துரைக்கு மாணவர்",
     readingFile: "கோப்பு வாசிக்கிறது…",
     bestFor: "சிறந்தது",
+    bestForAll: "முழு வகுப்புக்கு சிறந்தது",
     concepts: "கருத்து பாக்கெட்டுகள்",
+    couldNotFinish: "Could not finish",
+    backToSelection: "← Back to selection",
   },
 };
 
@@ -211,6 +236,8 @@ const ROJAK: ExtraUiCopy = {
     truncatedSub: "Best results: upload shorter sections lah.",
     genMessages: ["Reading doc…", "Adapting for your style…", "Almost ready…"],
     journeyHint: "Pick format in main area. Quick recap/quiz — guna Ilm (✦) on the right.",
+    couldNotFinish: "Could not finish",
+    backToSelection: "← Back to selection",
   },
   educator: {
     step1: "1 · Upload",
@@ -232,10 +259,13 @@ const ROJAK: ExtraUiCopy = {
     truncatedTitle: "Doc panjang — we guna first part.",
     truncatedSub: "Try shorter sections for best results lah.",
     genMessages: ["Reading…", "Adapting…", "Almost ready…"],
-    openClassStep: "Step 1: Open My class & pick student",
+    openClassStep: "Optional: open class panel for personal student tips",
     readingFile: "Reading file…",
     bestFor: "Best for",
+    bestForAll: "Best for whole class",
     concepts: "Concept pockets",
+    couldNotFinish: "Could not finish",
+    backToSelection: "← Back to selection",
   },
 };
 

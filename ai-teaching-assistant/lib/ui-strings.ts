@@ -2,6 +2,7 @@ import type { Language } from "@/lib/api";
 import { EXTRA_COPY, type ExtraUiCopy } from "@/lib/ui-strings-extra";
 import { FORMAT_COPY, type FormatCopy } from "@/lib/ui-strings-formats";
 import { MOOD_COPY, type MoodCopy } from "@/lib/ui-strings-mood";
+import { SHARED_COPY, type SharedUiCopy } from "@/lib/ui-strings-shared";
 
 type StudentBase = {
   mode: string;
@@ -48,10 +49,12 @@ type EducatorBase = {
 export type UiStrings = {
   mood: MoodCopy;
   formats: FormatCopy;
+  shared: SharedUiCopy;
   lang: { label: string; hint: string; rojak: string };
   nav: { student: string; educator: string; home: string };
   student: StudentBase & ExtraUiCopy["student"];
   ilm: {
+    tagline: string;
     welcomeLanding: string;
     welcomeReady: string;
     welcomeNoFile: string;
@@ -122,6 +125,7 @@ const EN: UiStringsBase = {
     },
   },
   ilm: {
+    tagline: "Your study kaki",
     welcomeLanding:
       "Hi! I'm Ilm. Ask how ilm.io works — or anything about studying.",
     welcomeReady: "Hey! I'm Ilm. Ask about your notes, or tap Quick actions.",
@@ -209,6 +213,7 @@ const MS: UiStringsBase = {
     },
   },
   ilm: {
+    tagline: "Kawan belajar anda",
     welcomeLanding:
       "Hai! Saya Ilm. Tanya cara ilm.io berfungsi — atau apa sahaja pasal belajar.",
     welcomeReady: "Hai! Saya Ilm. Tanya tentang nota anda, atau tekan tindakan pantas.",
@@ -294,6 +299,7 @@ const ZH: UiStringsBase = {
     },
   },
   ilm: {
+    tagline: "你的学习伙伴",
     welcomeLanding: "你好！我是 Ilm。可以问 ilm.io 怎么用，或任何学习问题。",
     welcomeReady: "你好！我是 Ilm。可以问笔记，或点快捷操作。",
     welcomeNoFile: "你好！我是 Ilm。随时可聊 — 上传笔记后可使用快捷操作。",
@@ -379,6 +385,7 @@ const TA: UiStringsBase = {
     },
   },
   ilm: {
+    tagline: "உங்கள் கற்றல் துணை",
     welcomeLanding:
       "வணக்கம்! நான் Ilm. ilm.io எப்படி வேலை செய்யும் என்று கேளுங்கள் — அல்லது கற்றல் பற்றி எதையும்.",
     welcomeReady: "வணக்கம்! நான் Ilm. குறிப்புகளைப் பற்றி கேளுங்கள், அல்லது விரைவு செயல்களைத் தட்டுங்கள்.",
@@ -466,6 +473,7 @@ const ROJAK: UiStringsBase = {
     },
   },
   ilm: {
+    tagline: "Your study kaki",
     welcomeLanding:
       "Hi! I'm Ilm. Tanya how ilm.io works — or anything pasal belajar lah.",
     welcomeReady: "Hey! I'm Ilm. Tanya pasal notes, or tap Quick actions.",
@@ -519,6 +527,7 @@ function mergeUi(base: UiStringsBase, lang: Language): UiStrings {
     ...base,
     mood: MOOD_COPY[lang] ?? MOOD_COPY.en,
     formats: FORMAT_COPY[lang] ?? FORMAT_COPY.en,
+    shared: SHARED_COPY[lang] ?? SHARED_COPY.en,
     student: { ...base.student, ...extra.student },
     educator: { ...base.educator, ...extra.educator },
   };

@@ -9,6 +9,7 @@ import {
 } from "@/lib/export-document";
 import { trackEvent } from "@/lib/track";
 import { apiUrl } from "@/lib/api-base";
+import { useUiStrings } from "@/lib/use-ui-strings";
 
 type Props = {
   title: string;
@@ -20,6 +21,7 @@ type Props = {
 };
 
 export function DownloadBar({ title, pptxUrl, htmlBody, accentColor = "#5e7d5c", trackTopic }: Props) {
+  const ui = useUiStrings();
   const [fmt, setFmt] = useState<ExportFmt>("pptx");
   const [busy, setBusy] = useState(false);
   const safe = title.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 36) || "ilmio";
@@ -85,7 +87,7 @@ h1{border-bottom:3px solid ${accentColor};padding-bottom:8px}
         ) : (
           "⬇"
         )}
-        Download {fmt.toUpperCase()}
+        {ui.shared.download} {fmt.toUpperCase()}
       </button>
     </div>
   );

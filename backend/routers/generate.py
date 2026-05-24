@@ -29,6 +29,7 @@ from models.schemas import (
     OutputKind, EducatorOutputKind, Condition,
 )
 from services import ai_service, tts_service, supabase_client, text_cache, artifact_cache
+from services.text_limits import TEXT_LIMIT, prepare_document_text
 
 router = APIRouter(prefix="/generate", tags=["generate"])
 
@@ -197,7 +198,7 @@ def _build_pdf(sections: list[dict]) -> bytes:
 @router.post("/slides", response_model=GenerateSlidesResponse)
 async def gen_slides(req: GenerateRequest):
     text = await _get_text(req.file_id)
-    truncated = len(text) > 6000
+    truncated = len(text) > TEXT_LIMIT
     job_id = str(uuid.uuid4())
     raw_slides = await run_in_threadpool(ai_service.generate_slides, text, req.condition)
     pptx_bytes = await run_in_threadpool(_build_pptx, raw_slides)
@@ -226,7 +227,7 @@ async def gen_audiobook(req: GenerateRequest):
 @router.post("/visual-summary", response_model=VisualSummaryResponse)
 async def gen_visual_summary(req: GenerateRequest):
     text = await _get_text(req.file_id)
-    truncated = len(text) > 5000
+    truncated = len(text) > TEXT_LIMIT
     job_id = str(uuid.uuid4())
     raw_cards = await run_in_threadpool(ai_service.generate_visual_summary, text)
     cards = [VisualCard(**c) for c in raw_cards]
@@ -239,7 +240,7 @@ async def gen_visual_summary(req: GenerateRequest):
 @router.post("/worksheet", response_model=WorksheetResponse)
 async def gen_worksheet(req: GenerateRequest):
     text = await _get_text(req.file_id)
-    truncated = len(text) > 5000
+    truncated = len(text) > TEXT_LIMIT
     job_id = str(uuid.uuid4())
     ws = await run_in_threadpool(ai_service.generate_worksheet, text, req.condition, req.difficulty)
     questions = [WorksheetQuestion(**q) for q in ws["questions"]]
@@ -257,7 +258,7 @@ async def gen_worksheet(req: GenerateRequest):
 @router.post("/simplified-text", response_model=SimplifiedTextResponse)
 async def gen_simplified(req: GenerateRequest):
     text = await _get_text(req.file_id)
-    truncated = len(text) > 6000
+    truncated = len(text) > TEXT_LIMIT
     job_id = str(uuid.uuid4())
     result = await run_in_threadpool(ai_service.generate_simplified_text, text)
     sections = result["sections"]
@@ -274,7 +275,7 @@ async def gen_educator(kind: str, req: EducatorGenerateRequest):
     if kind not in valid_kinds:
         raise HTTPException(400, f"Unknown kind '{kind}'.")
     text = await _get_text(req.file_id)
-    truncated = len(text) > 5000
+    truncated = len(text) > TEXT_LIMIT
     job_id = str(uuid.uuid4())
     content = await run_in_threadpool(ai_service.generate_educator_content, text, kind, req.condition)
     sections = [{"heading": k.replace("_", " ").title(), "text": str(v), "key_idea": ""} for k, v in content.items()]
@@ -291,7 +292,7 @@ async def gen_explain_style(req: ExplainStyleRequest):
     if req.style not in valid_styles:
         raise HTTPException(400, f"Unknown style '{req.style}'. Valid: {sorted(valid_styles)}")
     text = await _get_text(req.file_id)
-    truncated = len(text) > 5000
+    truncated = len(text) > TEXT_LIMIT
     result = await run_in_threadpool(
         ai_service.generate_with_style, text, req.style, req.condition, req.lang
     )
@@ -307,7 +308,7 @@ async def gen_explain_style(req: ExplainStyleRequest):
 @router.post("/financial-literacy")
 async def gen_financial_literacy(req: FinancialLiteracyRequest):
     text = await _get_text(req.file_id)
-    truncated = len(text) > 5000
+    truncated = len(text) > TEXT_LIMIT
     job_id = str(uuid.uuid4())
     result = await run_in_threadpool(
         ai_service.generate_financial_literacy, text, req.condition, req.lang

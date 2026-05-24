@@ -1,7 +1,5 @@
 import type { NextConfig } from "next";
 
-const BACKEND = process.env.BACKEND_URL ?? "http://localhost:8000";
-
 const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
@@ -9,9 +7,7 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "image.pollinations.ai", pathname: "/**" },
     ],
   },
-  async rewrites() {
-    return [{ source: "/api/:path*", destination: `${BACKEND}/api/:path*` }];
-  },
+  // Long-running agent calls use app/api/[...path]/route.ts (180s timeout), not rewrites.
 };
 
 export default nextConfig;

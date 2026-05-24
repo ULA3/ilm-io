@@ -14,13 +14,14 @@ import { ILM_ASSISTANT_PAGE_EVENT } from "@/lib/ilm-assistant-actions";
 import { TranslatingOverlay } from "@/app/components/TranslatingOverlay";
 import { trackEvent, DEMO_STUDENT_ID } from "@/lib/track";
 import { DEMO_CLASS_ROSTER } from "@/lib/demo-class";
+import { GENERAL_CLASS_ID, isGeneralClassSelection } from "@/lib/educator-class";
 import { SlideVisual } from "@/app/components/SlideVisual";
 import {
   recommendedFormatForCondition,
   educatorOutputButtonClass,
 } from "@/lib/ilm-formats";
 import { getEducatorOutputOptions, getFormatLabel } from "@/lib/localized-formats";
-import { FORMAT_COPY } from "@/lib/ui-strings-formats";
+import { FORMAT_COPY, EDUCATOR_FORMAT_TIPS } from "@/lib/ui-strings-formats";
 import { useIlmLanguage } from "@/lib/ilm-language";
 import { useUiStrings } from "@/lib/use-ui-strings";
 import { IlmLanguageSelect } from "@/app/components/ilm/IlmLanguageSelect";
@@ -636,7 +637,7 @@ export default function EducatorDashboard() {
   const [reportGenerating, setReportGenerating] = useState(false);
   const [reportError, setReportError]   = useState<string | null>(null);
   const [bars, setBars]                 = useState<{ label: string; value: number; color: string }[]>([]);
-  const [expandedStudent, setExpanded]  = useState<string | null>(null);
+  const [expandedStudent, setExpanded]  = useState<string | null>(GENERAL_CLASS_ID);
   const [heatmapCells, setHeatmapCells] = useState<HeatmapCell[]>([]);
   const [sessionEvents, setSessionEvents] = useState<{ topic: string; difficulty: number }[]>([]);
 
@@ -712,12 +713,12 @@ export default function EducatorDashboard() {
         const list = r.students.length > 0 ? r.students : DEMO_CLASS_ROSTER;
         setStudents(list);
         setStudentsSource(r.students.length > 0 ? "api" : "demo");
-        setExpanded((prev) => prev ?? list[0]?.id ?? DEMO_STUDENT_ID);
+        setExpanded((prev) => prev ?? GENERAL_CLASS_ID);
       })
       .catch(() => {
         setStudents(DEMO_CLASS_ROSTER);
         setStudentsSource("demo");
-        setExpanded(DEMO_STUDENT_ID);
+        setExpanded(GENERAL_CLASS_ID);
       });
     api.getReports().then(setReports).catch(() => setReports([]));
     refreshAnalytics();
@@ -785,7 +786,7 @@ export default function EducatorDashboard() {
       setPockets(p);
       setTruncatedWarning(!!p.truncated);
       setStep("ready");
-      trackEvent("upload", { topic: p.topic, filename: name }, expandedStudent ?? DEMO_STUDENT_ID);
+      trackEvent("upload", { topic: p.topic, filename: name }, isGeneralClassSelection(expandedStudent) ? GENERAL_CLASS_ID : (expandedStudent ?? DEMO_STUDENT_ID));
     } catch (e) {
       setPipelineError(e instanceof Error ? e.message : "Reader Agent failed");
       setStep("error");
@@ -823,7 +824,7 @@ export default function EducatorDashboard() {
     if (!fileId || step === "generating") return;
     setActiveOutput(kind);
     setStep("generating");
-    const sid = expandedStudent ?? DEMO_STUDENT_ID;
+    const sid = trackingId;
     try {
       if (kind === "adhd") {
         const r = await api.agentADHDSlides(fileId, lang);
@@ -869,7 +870,7 @@ export default function EducatorDashboard() {
     setCriticGenerating(true); setCriticError(null);
     setWorksheetResult(null); setQuizResult(null);
     try {
-      const sid = expandedStudent ?? DEMO_STUDENT_ID;
+      const sid = trackingId;
       if (kind === "worksheet") {
         const r = await api.agentWorksheet(fileId, criticCondition, lang);
         setWorksheetResult(r);
@@ -893,7 +894,7 @@ export default function EducatorDashboard() {
     try {
       const r = await api.generateReport();
       setReports((prev) => [r, ...prev.filter((x) => x.id !== r.id)].slice(0, 5));
-      trackEvent("slide_view", { topic: "Weekly report generated", difficulty: 2 }, expandedStudent ?? DEMO_STUDENT_ID);
+      trackEvent("slide_view", { topic: "Weekly report generated", difficulty: 2 }, trackingId);
     } catch (e) {
       setReportError(e instanceof Error ? e.message : "Could not generate report");
     } finally {
@@ -901,13 +902,24 @@ export default function EducatorDashboard() {
     }
   }
 
-  const trackedStudent = students.find((s) => s.id === expandedStudent);
+  const isGeneralMode = isGeneralClassSelection(expandedStudent);
+  const trackedStudent = isGeneralMode
+    ? null
+    : students.find((s) => s.id === expandedStudent) ?? null;
+  const trackingId = isGeneralMode
+    ? GENERAL_CLASS_ID
+    : expandedStudent ?? DEMO_STUDENT_ID;
+
   const formatRec = useMemo(() => {
-    if (!trackedStudent) return null;
-    const rec = recommendedFormatForCondition(trackedStudent.condition);
+    const condition = trackedStudent?.condition ?? "Mixed";
+    const rec = recommendedFormatForCondition(condition);
     if (!rec) return null;
     const copy = FORMAT_COPY[lang]?.[rec.kind] ?? FORMAT_COPY.en[rec.kind];
-    return { ...rec, label: copy.label, shortLabel: copy.shortLabel, oneLine: copy.why };
+    const tips =
+      EDUCATOR_FORMAT_TIPS[lang]?.[rec.kind] ??
+      EDUCATOR_FORMAT_TIPS.en?.[rec.kind] ??
+      rec.tips;
+    return { ...rec, label: copy.label, shortLabel: copy.shortLabel, oneLine: copy.why, tips };
   }, [trackedStudent, lang]);
   const activeResult =
     activeOutput === "adhd"      ? adhdResult      :
@@ -938,7 +950,7 @@ export default function EducatorDashboard() {
             onClick={() => setSidebar(!sidebarOpen)}
             aria-expanded={sidebarOpen}
             aria-controls="educator-class-panel"
-            aria-label={sidebarOpen ? "Hide class panel" : "Show class panel"}
+            aria-label={sidebarOpen ? ui.shared.hideClass : ui.shared.openClass}
             className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 border-2 ${
               sidebarOpen
                 ? "bg-terra-lo border-terra text-terra-hi"
@@ -948,7 +960,7 @@ export default function EducatorDashboard() {
             <span className="text-base leading-none" aria-hidden>
               👥
             </span>
-            <span className="hidden sm:inline">{sidebarOpen ? "Hide class" : "My class"}</span>
+            <span className="hidden sm:inline">{sidebarOpen ? ui.shared.hideClass : ui.shared.myClass}</span>
           </button>
         </div>
       </header>
@@ -967,14 +979,24 @@ export default function EducatorDashboard() {
           <div className="md:hidden max-w-xs pb-1">
             <IlmLanguageSelect id="ilm-lang-educator-mobile" />
           </div>
-          {!trackedStudent && (
-            <button
-              type="button"
-              onClick={() => setSidebar(true)}
-              className="w-full text-left bg-honey-lo border-2 border-honey rounded-2xl px-4 py-3 text-sm text-bark-deep font-semibold hover:bg-honey/30"
+          {isGeneralMode && formatRec && (
+            <div
+              className={`rounded-2xl px-4 py-3 flex items-center gap-3 border-2 ${formatRec.theme.border} ${formatRec.theme.bgLo}`}
             >
-              👆 {ui.educator.openClassStep}
-            </button>
+              <span className="text-2xl">👥</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-bark-deep flex items-center gap-2 flex-wrap">
+                  {ui.shared.sidebar.generalClass}
+                  <FormatBadge kind={formatRec.kind} />
+                </p>
+                <p className="text-xs text-bark-soft">
+                  {ui.shared.tryPrefix} {formatRec.emoji} {formatRec.label} · {formatRec.oneLine}
+                </p>
+              </div>
+              <button type="button" onClick={() => setSidebar(true)} className="text-[11px] text-terra-hi font-semibold shrink-0">
+                {ui.shared.change}
+              </button>
+            </div>
           )}
           {trackedStudent && formatRec && (
             <div
@@ -987,11 +1009,11 @@ export default function EducatorDashboard() {
                   <FormatBadge kind={formatRec.kind} />
                 </p>
                 <p className="text-xs text-bark-soft">
-                  Try {formatRec.emoji} {formatRec.label} · {formatRec.oneLine}
+                  {ui.shared.tryPrefix} {formatRec.emoji} {formatRec.label} · {formatRec.oneLine}
                 </p>
               </div>
               <button type="button" onClick={() => setSidebar(true)} className="text-[11px] text-terra-hi font-semibold shrink-0">
-                Change
+                {ui.shared.change}
               </button>
             </div>
           )}
@@ -1001,8 +1023,8 @@ export default function EducatorDashboard() {
             <div className="bg-parch rounded-2xl border border-sand-mid px-4 py-3 flex flex-wrap items-center gap-3">
               <PipelineIndicator step={step} />
               {step === "reading" && <p className="text-bark-soft text-xs ml-auto animate-pulse">{ui.educator.readingFile}</p>}
-              {step === "generating" && <p className="text-bark-soft text-xs ml-auto animate-pulse">Making slides…</p>}
-              {step === "done" && <p className="text-sage text-xs ml-auto font-medium">✓ Complete — {fileName}</p>}
+              {step === "generating" && <p className="text-bark-soft text-xs ml-auto animate-pulse">{ui.shared.makingSlides}</p>}
+              {step === "done" && <p className="text-sage text-xs ml-auto font-medium">✓ {ui.shared.complete} — {fileName}</p>}
               {step === "error" && <p className="text-terra-hi text-xs ml-auto">{pipelineError}</p>}
             </div>
           )}
@@ -1028,7 +1050,7 @@ export default function EducatorDashboard() {
               <summary className="cursor-pointer list-none p-5 font-bold text-bark-deep flex items-center gap-2 [&::-webkit-details-marker]:hidden">
                 <span className="text-sage">✓</span>
                 {pockets.pockets.length} topics ready · {pockets.topic}
-                <span className="ml-auto text-[10px] text-bark-faint font-normal">Show details</span>
+                <span className="ml-auto text-[10px] text-bark-faint font-normal">{ui.shared.showDetails}</span>
               </summary>
               <div className="px-5 pb-5 space-y-3 border-t border-sand-mid pt-3">
                 <p className="text-sm text-bark-deep">{pockets.summary}</p>
@@ -1050,7 +1072,7 @@ export default function EducatorDashboard() {
             <div className="bg-parch rounded-3xl p-5 border border-sand-mid">
               <h2 className="font-bold text-bark-deep mb-3">{ui.educator.pickFormat}</h2>
 
-              {formatRec && trackedStudent && (
+              {formatRec && (
                 <button
                   type="button"
                   onClick={() => generate(formatRec.kind)}
@@ -1058,7 +1080,9 @@ export default function EducatorDashboard() {
                   className={`w-full mb-4 rounded-2xl border-2 p-4 text-left hover:opacity-95 disabled:opacity-50 ${formatRec.theme.border} ${formatRec.theme.bgLo}`}
                 >
                   <p className={`text-[10px] font-bold uppercase ${formatRec.theme.textHi}`}>
-                    {ui.educator.bestFor} {trackedStudent.name.split(" ")[0]}
+                    {isGeneralMode
+                      ? ui.educator.bestForAll
+                      : `${ui.educator.bestFor} ${trackedStudent!.name.split(" ")[0]}`}
                   </p>
                   <p className="text-lg font-bold text-bark-deep mt-1 flex items-center gap-2">
                     <span>{formatRec.emoji}</span>
@@ -1142,10 +1166,10 @@ export default function EducatorDashboard() {
 
               {step === "error" && (
                 <div className="bg-terra-lo rounded-2xl p-4">
-                  <p className="text-terra-hi font-semibold text-sm mb-1">Something went wrong</p>
+                  <p className="text-terra-hi font-semibold text-sm mb-1">{ui.educator.couldNotFinish}</p>
                   <p className="text-bark-deep text-sm">{pipelineError}</p>
                   <button onClick={() => { setStep("ready"); setPipelineError(null); }}
-                    className="mt-3 text-xs text-terra-hi font-medium hover:underline">← Back to selection</button>
+                    className="mt-3 text-xs text-terra-hi font-medium hover:underline">{ui.educator.backToSelection}</button>
                 </div>
               )}
 
@@ -1295,20 +1319,24 @@ export default function EducatorDashboard() {
             className={`hidden lg:flex flex-col items-center justify-center gap-2 w-12 h-full shrink-0 py-6 text-terra-hi hover:bg-terra-lo/50 transition-colors ${
               sidebarOpen ? "lg:hidden" : ""
             }`}
-            aria-label="Open class panel"
+            aria-label={ui.shared.openClass}
             tabIndex={sidebarOpen ? -1 : 0}
           >
             <span className="text-lg" aria-hidden>
               👥
             </span>
             <span className="text-[9px] font-bold uppercase tracking-widest text-bark-faint [writing-mode:vertical-rl] rotate-180">
-              Class
+              {ui.shared.classTab}
             </span>
-            {trackedStudent && (
+            {trackedStudent ? (
               <span className="text-xl mt-2" title={trackedStudent.name}>
                 {trackedStudent.emoji}
               </span>
-            )}
+            ) : isGeneralMode ? (
+              <span className="text-xl mt-2" title={ui.shared.sidebar.generalClass}>
+                👥
+              </span>
+            ) : null}
           </button>
 
           <div

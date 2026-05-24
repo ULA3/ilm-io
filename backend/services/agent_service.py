@@ -28,6 +28,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from services.llm_client import client as _client, MODEL as _MODEL
 from services.lang_prefs import LANGUAGE_NAMES, chat_lang_instruction, lang_instruction as _lang_instruction
 from services.app_guide import format_app_context, actions_for_role
+from services.text_limits import TEXT_LIMIT, prepare_document_text
 
 
 # ── Shared helpers ─────────────────────────────────────────────────────────
@@ -69,6 +70,7 @@ def read_document(text: str, lang: str = "en") -> dict:
         "Understand context, infer meaning, and organise information clearly. "
         "Output ONLY valid JSON — no prose outside the JSON block."
     )
+    doc_text, was_truncated = prepare_document_text(text)
     user = f"""
 Analyse the document below and extract structured learning pockets.
 
@@ -101,11 +103,11 @@ Rules:
 - Examples must be concrete and relatable to a 12-year-old
 
 DOCUMENT:
-{text[:6000]}
+{doc_text}
 {_lang_instruction(lang)}"""
     result = _parse_json(_ask(system, user, max_tokens=3000))
     if isinstance(result, dict):
-        result["truncated"] = len(text) > 6000
+        result["truncated"] = was_truncated
         result["lang"] = lang
     return result
 
@@ -571,13 +573,13 @@ def ilmuist_chat(
     except Exception:
         suggestions = []
 
-    actions = _suggest_ui_actions(message, reply, app_page, role)
+    actions = []  # Chat must not offer system-control buttons
 
     return {"message": reply, "suggestions": suggestions, "actions": actions}
 
 
 def _suggest_ui_actions(user_msg: str, reply: str, page: str, role: str) -> list[dict]:
-    """0-2 tap-to-run UI actions when the conversation implies a setting change."""
+    """0-2 optional tap buttons when the conversation implies a setting change (never auto-applied)."""
     valid = set(actions_for_role(page, role))
     if not valid:
         return []
@@ -589,7 +591,8 @@ def _suggest_ui_actions(user_msg: str, reply: str, page: str, role: str) -> list
                 {
                     "role": "system",
                     "content": (
-                        "Output ONLY a JSON array (0-2 items) of UI actions for ilm.io. "
+                        "Output ONLY a JSON array (0-2 items) of optional UI tap buttons for ilm.io. "
+                        "The user must press a button — nothing runs automatically. "
                         f'Each: {{"id": "<allowed id>", "label": "<max 5 words>"}}. '
                         f"Allowed ids: {', '.join(sorted(valid))}. "
                         "Return [] if no button would help."

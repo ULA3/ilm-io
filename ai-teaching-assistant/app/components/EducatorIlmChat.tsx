@@ -2,13 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as api from "@/lib/api";
-import type { IlmAssistantAction, IlmuistResponse, PocketsResponse } from "@/lib/api";
+import type { IlmuistResponse, PocketsResponse } from "@/lib/api";
 import type { Language } from "@/lib/api";
 import { useUiStrings } from "@/lib/use-ui-strings";
 import { trackEvent } from "@/lib/track";
 import { buildAppContextSnapshot, type AppContextExtras } from "@/lib/app-context";
-import { applyAssistantActions, executeAssistantAction } from "@/lib/ilm-assistant-actions";
-import { IlmActionChips } from "@/app/components/ilm/IlmActionChips";
 
 function ChatText({ text }: { text: string }) {
   const lines = text.split("\n");
@@ -71,7 +69,6 @@ export function EducatorIlmChat({
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [uiActions, setUiActions] = useState<IlmAssistantAction[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatTracked = useRef(false);
 
@@ -86,17 +83,7 @@ export function EducatorIlmChat({
     setMsgs([{ from: "bot", text: welcome }]);
     setHistory([]);
     setSuggestions([]);
-    setUiActions([]);
   }, [fileId, welcome, lang]);
-
-  function appendBot(text: string) {
-    setMsgs((m) => [...m, { from: "bot", text }]);
-  }
-
-  function runUiAction(id: string) {
-    executeAssistantAction(id, "educator");
-    setUiActions([]);
-  }
 
   async function send(text?: string) {
     const msg = (text ?? input).trim();
@@ -107,7 +94,6 @@ export function EducatorIlmChat({
     setMsgs((m) => [...m, { from: "user", text: msg }]);
     setThinking(true);
     setSuggestions([]);
-    setUiActions([]);
     try {
       const appContext = buildAppContextSnapshot("educator", lang, {
         hasFile: !!fileId,
@@ -127,8 +113,6 @@ export function EducatorIlmChat({
       setMsgs((m) => [...m, { from: "bot", text: res.message }]);
       setHistory((h) => [...h, { role: "assistant", content: res.message }]);
       setSuggestions(res.suggestions ?? []);
-      setUiActions(res.actions ?? []);
-      applyAssistantActions(res.actions, "educator", appendBot);
     } catch {
       setMsgs((m) => [...m, { from: "bot", text: ed.error }]);
     } finally {
@@ -217,28 +201,20 @@ export function EducatorIlmChat({
           </div>
 
           <div className="shrink-0 border-t border-sand-mid bg-parch/80">
-            {(suggestions.length > 0 || uiActions.length > 0) && (
+            {suggestions.length > 0 && (
               <div className="px-3 pt-2.5 pb-2 flex flex-col gap-2">
-                {suggestions.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {suggestions.map((s, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => send(s)}
-                        className="text-[11px] bg-sand text-bark-deep px-3 py-1 rounded-full hover:bg-sand-mid transition-colors font-medium border border-sand-mid"
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <IlmActionChips
-                  actions={uiActions}
-                  onAction={runUiAction}
-                  disabled={thinking}
-                  tone="terra"
-                />
+                <div className="flex flex-wrap gap-1.5">
+                  {suggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => send(s)}
+                      className="text-[11px] bg-sand text-bark-deep px-3 py-1 rounded-full hover:bg-sand-mid transition-colors font-medium border border-sand-mid"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 

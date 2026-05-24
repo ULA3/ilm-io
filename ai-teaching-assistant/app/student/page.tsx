@@ -1344,6 +1344,7 @@ export default function StudentDashboard() {
     | { kind: "dyslexia";  data: AgentSlidesResponse }
     | { kind: "mindmap";   data: MindmapResponse }
     | { kind: "worksheet"; data: ExaminerWorksheetResponse }
+    | { kind: "transcribe"; data: TranscribeResponse }
     | null;
 
   const [activeOutput, setActiveOutput]     = useState<OutputKind | null>(null);
@@ -1390,6 +1391,9 @@ export default function StudentDashboard() {
         } else if (activeOutput === "worksheet") {
           const r = await api.agentExaminerWorksheet(fileId, lang);
           setOutput({ kind: "worksheet", data: r });
+        } else if (activeOutput === "transcribe") {
+          const r = await api.agentTranscribe(fileId, lang);
+          setOutput({ kind: "transcribe", data: r });
         }
       } catch (e) {
         setTranslateError(e instanceof Error ? e.message : "Could not refresh in this language");
@@ -1436,6 +1440,10 @@ export default function StudentDashboard() {
         const r = await api.agentVisualMindmap(fileId, lang);
         setOutput({ kind: "mindmap", data: r });
         trackEvent("slide_view", { topic: "Visual Mind Map", difficulty: 2 });
+      } else if (kind === "transcribe") {
+        const r = await api.agentTranscribe(fileId, lang);
+        setOutput({ kind: "transcribe", data: r });
+        trackEvent("slide_view", { topic: "Audio / Transcribe", difficulty: 2 });
       } else {
         const r = await api.agentExaminerWorksheet(fileId, lang);
         setOutput({ kind: "worksheet", data: r });
@@ -1489,6 +1497,7 @@ export default function StudentDashboard() {
             {step === "done" && output?.kind === "dyslexia"  && <DyslexiaSlidesPanel result={output.data} />}
             {step === "done" && output?.kind === "mindmap"   && <MindmapPanel result={output.data} />}
             {step === "done" && output?.kind === "worksheet" && <WorksheetPanel result={output.data} lang={lang} />}
+            {step === "done" && output?.kind === "transcribe" && <AudioPanel result={output.data} />}
           </div>
         </div>
       )}
@@ -1716,7 +1725,7 @@ export default function StudentDashboard() {
                         {GEN_MESSAGES[genMessage]}
                       </p>
                       <p className="text-bark-faint text-xs">
-                        {OUTPUT_BUTTONS.find(b => b.kind === activeOutput)?.label ?? "Generating"} · 20–40 seconds
+                        {OUTPUT_BUTTONS.find(b => b.kind === activeOutput)?.label ?? ui.student.generating} · {ui.shared.generatingSeconds}
                       </p>
                     </div>
                   </div>
@@ -1726,10 +1735,10 @@ export default function StudentDashboard() {
 
               {step === "error" && (
                 <div className="bg-terra-lo rounded-2xl p-4">
-                  <p className="text-terra-hi font-semibold text-sm mb-1">Could not finish</p>
+                  <p className="text-terra-hi font-semibold text-sm mb-1">{ui.student.couldNotFinish}</p>
                   <p className="text-bark-deep text-sm">{pipelineError}</p>
                   <button onClick={() => { setStep("ready"); setPipelineError(null); }}
-                    className="mt-3 text-xs text-terra-hi font-medium hover:underline">← Back to selection</button>
+                    className="mt-3 text-xs text-terra-hi font-medium hover:underline">{ui.student.backToSelection}</button>
                 </div>
               )}
 
@@ -1738,6 +1747,7 @@ export default function StudentDashboard() {
               {step === "done" && output?.kind === "dyslexia"  && <DyslexiaSlidesPanel result={output.data} />}
               {step === "done" && output?.kind === "mindmap"   && <MindmapPanel result={output.data} />}
               {step === "done" && output?.kind === "worksheet" && <WorksheetPanel result={output.data} lang={lang} />}
+              {step === "done" && output?.kind === "transcribe" && <AudioPanel result={output.data} />}
             </div>
           )}
         </div>

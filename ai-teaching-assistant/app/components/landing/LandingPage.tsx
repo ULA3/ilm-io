@@ -10,13 +10,11 @@ import { IlmLanguageSelect } from "@/app/components/ilm/IlmLanguageSelect";
 import { LandingIlmChat } from "@/app/components/landing/LandingIlmChat";
 import { PROFILE_FORMAT_OPTIONS } from "@/lib/ilm-formats";
 import { useLandingCopy, useUiStrings } from "@/lib/use-ui-strings";
+import { useIlmLanguage } from "@/lib/ilm-language";
+import { getProfileOptions, getEnergyBlocks } from "@/lib/landing-demo-i18n";
+import { getFormatLabel } from "@/lib/localized-formats";
 
 const PAIN_EMOJI = ["📄", "⏱️", "🔤", "😰"];
-
-const PROFILE_OPTS = {
-  condition: ["ADHD", "Dyslexia", "Autism", "Mixed"],
-  pace: ["Quick bursts", "Steady blocks", "Flexible"],
-};
 
 function FloatingShapes() {
   const shapes = [
@@ -49,42 +47,24 @@ function FloatingShapes() {
 export function LandingPage() {
   const ui = useUiStrings();
   const L = useLandingCopy();
-  const [condition, setCondition] = useState("ADHD");
-  const [pace, setPace] = useState("Quick bursts");
-  const [format, setFormat] = useState<string>(PROFILE_FORMAT_OPTIONS[0].label);
+  const { lang } = useIlmLanguage();
+  const profileOpts = getProfileOptions(lang);
+  const [conditionKey, setConditionKey] = useState("adhd");
+  const [paceKey, setPaceKey] = useState("quick");
+  const [formatKey, setFormatKey] = useState<string>(PROFILE_FORMAT_OPTIONS[0].key);
   const [energy, setEnergy] = useState(65);
   const [accFont, setAccFont] = useState<"default" | "dyslexic">("default");
   const [accSize, setAccSize] = useState<"md" | "lg">("md");
   const [highContrast, setHighContrast] = useState(false);
 
-  const energyLabel =
-    energy >= 75 ? "High focus" : energy >= 45 ? "Steady" : "Low energy — gentle mode";
-
-  const studyBlocks =
-    energy >= 75
-      ? [
-          { min: 25, task: "Focus slides — one concept", color: "bg-dust-lo border-dust" },
-          { min: 5, task: "Stretch break", color: "bg-sand border-sand-mid" },
-          { min: 20, task: "Practice questions", color: "bg-sage-lo border-sage" },
-        ]
-      : energy >= 45
-        ? [
-            { min: 15, task: "Easy-read slides", color: "bg-[#E8F4FD] border-[#1A5C96]" },
-            { min: 10, task: "Mind map review", color: "bg-terra-lo border-terra" },
-            { min: 15, task: "Ilm summarize + quiz", color: "bg-sage-lo border-sage" },
-          ]
-        : [
-            { min: 10, task: "Listen — short audio script", color: "bg-sage-lo border-sage" },
-            { min: 5, task: "Rest — no screens", color: "bg-sand border-sand-mid" },
-            { min: 10, task: "3 vocab words only", color: "bg-honey-lo border-honey" },
-          ];
+  const { label: energyLabel, studyBlocks } = getEnergyBlocks(lang, energy);
 
   const fingerprint = {
-    visual: condition === "Autism" ? 72 : condition === "ADHD" ? 88 : 65,
-    auditory: format.includes("audio") ? 80 : 45,
-    structured: condition === "Autism" ? 92 : 55,
-    interactive: format.includes("Practice") || format.includes("Mind Map") ? 85 : 60,
-    calm: condition === "Dyslexia" ? 90 : 70,
+    visual: conditionKey === "autism" ? 72 : conditionKey === "adhd" ? 88 : 65,
+    auditory: formatKey === "transcribe" ? 80 : 45,
+    structured: conditionKey === "autism" ? 92 : 55,
+    interactive: formatKey === "worksheet" || formatKey === "mindmap" ? 85 : 60,
+    calm: conditionKey === "dyslexia" ? 90 : 70,
   };
 
   return (
@@ -224,18 +204,18 @@ export function LandingPage() {
               <div>
                 <p className="text-xs font-semibold text-bark-faint mb-2">{L.profile.condition}</p>
                 <div className="flex flex-wrap gap-2">
-                  {PROFILE_OPTS.condition.map((c) => (
+                  {profileOpts.conditions.map((c) => (
                     <button
-                      key={c}
+                      key={c.key}
                       type="button"
-                      onClick={() => setCondition(c)}
+                      onClick={() => setConditionKey(c.key)}
                       className={`px-3 py-1 rounded-full text-xs font-bold border-2 transition-all ${
-                        condition === c
+                        conditionKey === c.key
                           ? "border-sage bg-sage-lo text-sage-hi"
                           : "border-sand-mid bg-white text-bark-soft"
                       }`}
                     >
-                      {c}
+                      {c.label}
                     </button>
                   ))}
                 </div>
@@ -243,18 +223,18 @@ export function LandingPage() {
               <div>
                 <p className="text-xs font-semibold text-bark-faint mb-2">{L.profile.pace}</p>
                 <div className="flex flex-wrap gap-2">
-                  {PROFILE_OPTS.pace.map((p) => (
+                  {profileOpts.paces.map((p) => (
                     <button
-                      key={p}
+                      key={p.key}
                       type="button"
-                      onClick={() => setPace(p)}
+                      onClick={() => setPaceKey(p.key)}
                       className={`px-3 py-1 rounded-full text-xs font-bold border-2 transition-all ${
-                        pace === p
+                        paceKey === p.key
                           ? "border-dust bg-dust-lo text-dust-hi"
                           : "border-sand-mid bg-white text-bark-soft"
                       }`}
                     >
-                      {p}
+                      {p.label}
                     </button>
                   ))}
                 </div>
@@ -266,14 +246,14 @@ export function LandingPage() {
                     <button
                       key={f.key}
                       type="button"
-                      onClick={() => setFormat(f.label)}
+                      onClick={() => setFormatKey(f.key)}
                       className={`px-3 py-1 rounded-full text-xs font-bold border-2 transition-all ${
-                        format === f.label
+                        formatKey === f.key
                           ? "border-terra bg-terra-lo text-terra-hi"
                           : "border-sand-mid bg-white text-bark-soft"
                       }`}
                     >
-                      {f.label}
+                      {getFormatLabel(lang, f.key)}
                     </button>
                   ))}
                 </div>
@@ -390,7 +370,7 @@ export function LandingPage() {
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-bark-deep">{b.task}</p>
                   </div>
-                  <span className="text-xs font-bold text-bark-soft">{b.min} min</span>
+                  <span className="text-xs font-bold text-bark-soft">{b.minLabel}</span>
                 </div>
               ))}
             </div>

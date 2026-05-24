@@ -13,6 +13,7 @@ import {
   stopIlmSpeech,
 } from "@/lib/accessibility";
 import { ILM_DOCK_STOP_MUSIC_EVENT, ILM_OPEN_DOCK_EVENT } from "@/lib/ilm-assistant-actions";
+import { useUiStrings } from "@/lib/use-ui-strings";
 
 const PANEL_W = 280;
 const DOCK_POS_KEY = "ilmio_dock_pos";
@@ -115,6 +116,8 @@ function AutoReadSwitch({ on, onChange }: { on: boolean; onChange: (v: boolean) 
 }
 
 export function SideDock() {
+  const ui = useUiStrings();
+  const dk = ui.shared.dock;
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<DockPos>({ edge: "left", y: 120 });
@@ -352,7 +355,7 @@ export function SideDock() {
           right: onLeft ? undefined : 10,
         }}
         role="complementary"
-        aria-label="Accessibility and focus music"
+        aria-label={`${dk.accessibility} · ${dk.focusMusic}`}
       >
         {!open ? (
           <button
@@ -377,7 +380,7 @@ export function SideDock() {
             <span
               className="text-[9px] font-bold text-bark-faint uppercase tracking-wider [writing-mode:vertical-rl] rotate-180"
             >
-              Controls
+              {dk.controls}
             </span>
             <span className="text-bark-soft text-xs" aria-hidden>
               ♪
@@ -397,7 +400,7 @@ export function SideDock() {
                 ⠿
               </span>
               <p className="text-xs font-bold text-bark-faint uppercase tracking-widest flex-1">
-                Controls
+                {dk.controls}
               </p>
               <div data-no-drag>
                 <DarkModeToggle />
@@ -486,7 +489,7 @@ export function SideDock() {
               </div>
 
               <div className="space-y-2.5">
-                <p className="text-[10px] font-bold text-bark-faint uppercase tracking-widest">Accessibility</p>
+                <p className="text-[10px] font-bold text-bark-faint uppercase tracking-widest">{dk.accessibility}</p>
                 <div className="flex gap-1.5 flex-wrap">
                   <Pill active={acc.font === "default"} onClick={() => patchAcc({ font: "default" })}>
                     Default
@@ -508,15 +511,15 @@ export function SideDock() {
                 </div>
                 <div className="flex gap-1.5">
                   <Pill active={acc.motion === "on"} onClick={() => patchAcc({ motion: "on" })}>
-                    Motion on
+                    {dk.motionOn}
                   </Pill>
                   <Pill active={acc.motion === "off"} onClick={() => patchAcc({ motion: "off" })}>
-                    Motion off
+                    {dk.motionOff}
                   </Pill>
                 </div>
 
                 <div className="flex items-center justify-between gap-3 pt-2 border-t border-sand-mid">
-                  <p className="text-[10px] text-bark-soft font-semibold">Auto-read Ilm</p>
+                  <p className="text-[10px] text-bark-soft font-semibold">{dk.autoRead}</p>
                   <AutoReadSwitch
                     on={acc.autoRead}
                     onChange={(v) => {
@@ -535,7 +538,7 @@ export function SideDock() {
                   }}
                   className="w-full text-center text-[10px] text-bark-faint hover:text-bark-deep py-1"
                 >
-                  Reset a11y
+                  {dk.resetA11y}
                 </button>
               </div>
 
@@ -544,7 +547,7 @@ export function SideDock() {
                 onClick={resetPosition}
                 className="w-full text-center text-[10px] text-sage-hi font-semibold hover:underline py-1"
               >
-                Reset position (left side)
+                {dk.resetPosition}
               </button>
             </div>
           </div>

@@ -3,6 +3,8 @@
 import type { StudentProfile, WeeklyReport, HeatmapCell, StudentObserverResult } from "@/lib/api";
 import type { FormatRecommendation } from "@/lib/ilm-formats";
 import { FormatBadge } from "@/app/components/ilm/FormatBadge";
+import { useUiStrings } from "@/lib/use-ui-strings";
+import { GENERAL_CLASS_ID, isGeneralClassSelection } from "@/lib/educator-class";
 
 type Props = {
   students: StudentProfile[];
@@ -48,6 +50,8 @@ export function EducatorSidebar({
   observerError,
   onRunObserver,
 }: Props) {
+  const ui = useUiStrings();
+  const sb = ui.shared.sidebar;
   const topicMap = new Map<string, number[]>();
   for (const cell of heatmapCells) {
     const arr = topicMap.get(cell.topic) ?? [];
@@ -68,22 +72,38 @@ export function EducatorSidebar({
           type="button"
           onClick={onClose}
           className="flex items-center justify-center w-9 h-9 rounded-xl bg-sand text-bark-soft hover:bg-sand-mid hover:text-bark-deep transition-colors shrink-0"
-          aria-label="Collapse class panel"
-          title="Collapse"
+          aria-label={sb.collapse}
+          title={sb.collapse}
         >
           <span className="text-lg leading-none" aria-hidden>
             ›
           </span>
         </button>
         <div className="flex-1 min-w-0">
-          <p className="font-bold text-bark-deep text-sm">My class</p>
-          <p className="text-[10px] text-bark-faint lg:hidden">Tap outside or Esc to close</p>
+          <p className="font-bold text-bark-deep text-sm">{sb.title}</p>
+          <p className="text-[10px] text-bark-faint lg:hidden">{sb.tapOutside}</p>
         </div>
       </div>
 
-      <p className="text-[11px] text-bark-faint">Tap who you are helping today.</p>
+      <p className="text-[11px] text-bark-faint">{sb.tapWho}</p>
 
       <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => onSelect(GENERAL_CLASS_ID)}
+          className={`w-full flex items-center gap-3 p-3 rounded-2xl text-left border-2 transition-all ${
+            isGeneralClassSelection(selectedId)
+              ? "border-sage bg-sage-lo"
+              : "border-transparent bg-sand hover:bg-sand-mid"
+          }`}
+        >
+          <span className="text-2xl">👥</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm text-bark-deep">{sb.generalClass}</p>
+            <p className="text-[10px] text-bark-faint mt-0.5">{sb.generalClassSub}</p>
+          </div>
+        </button>
+
         {students.map((s) => {
           const on = selectedId === s.id;
           const low = s.weekly_progress < 55;
@@ -115,11 +135,14 @@ export function EducatorSidebar({
         })}
       </div>
 
-      {selectedStudent && formatRec && (
+      {(selectedStudent || isGeneralClassSelection(selectedId)) && formatRec && (
         <div
           className={`rounded-2xl border-2 p-3 ${formatRec.theme.border} ${formatRec.theme.bgLo}`}
         >
-          <p className={`text-[10px] font-bold uppercase mb-1 ${formatRec.theme.textHi}`}>Best format</p>
+          <p className={`text-[10px] font-bold uppercase mb-1 ${formatRec.theme.textHi}`}>
+            {sb.bestFormat}
+            {isGeneralClassSelection(selectedId) ? ` · ${sb.generalClass}` : ""}
+          </p>
           <p className="text-sm font-bold text-bark-deep flex items-center gap-2 flex-wrap">
             <span>{formatRec.emoji}</span>
             {formatRec.label}
@@ -138,7 +161,7 @@ export function EducatorSidebar({
 
       {topics.length > 0 && (
         <div>
-          <p className="text-[10px] font-bold text-bark-faint uppercase mb-2">Hard topics</p>
+          <p className="text-[10px] font-bold text-bark-faint uppercase mb-2">{sb.hardTopics}</p>
           <div className="space-y-1.5">
             {topics.map(([topic, vals]) => {
               const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -161,19 +184,19 @@ export function EducatorSidebar({
 
       <div className="rounded-2xl border-2 border-sand-mid bg-parch p-3">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-[10px] font-bold text-bark-faint uppercase">Student Observer</p>
+          <p className="text-[10px] font-bold text-bark-faint uppercase">{sb.observerTitle}</p>
           <button
             type="button"
             onClick={onRunObserver}
             disabled={observerLoading}
             className="text-[11px] font-semibold text-terra-hi hover:underline disabled:opacity-50"
           >
-            {observerLoading ? "…" : "Scan class"}
+            {observerLoading ? "…" : sb.scanClass}
           </button>
         </div>
         {observerError && <p className="text-[11px] text-terra-hi mb-2">{observerError}</p>}
         {!observerResults && !observerLoading && (
-          <p className="text-[11px] text-bark-faint">Flags who needs attention after you generate content.</p>
+          <p className="text-[11px] text-bark-faint">{sb.observerHint}</p>
         )}
         {observerResults && observerResults.length > 0 && (
           <ul className="space-y-2 mt-1">
@@ -186,10 +209,10 @@ export function EducatorSidebar({
               >
                 <p className="font-semibold text-bark-deep flex items-center justify-between gap-2">
                   <span>{row.name}</span>
-                  {row.needs_attention && <span className="text-terra-hi text-[10px]">Needs help</span>}
+                  {row.needs_attention && <span className="text-terra-hi text-[10px]">{sb.needsHelp}</span>}
                 </p>
                 <p className="text-bark-soft mt-0.5">{row.recommendation}</p>
-                <p className="text-bark-faint mt-0.5">Coverage {row.coverage_pct}%</p>
+                <p className="text-bark-faint mt-0.5">{sb.coverage} {row.coverage_pct}%</p>
               </li>
             ))}
           </ul>
@@ -198,21 +221,21 @@ export function EducatorSidebar({
 
       <div className="pt-2 border-t border-sand-mid">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-[10px] font-bold text-bark-faint uppercase">Weekly note</p>
+          <p className="text-[10px] font-bold text-bark-faint uppercase">{sb.weeklyNote}</p>
           <button
             type="button"
             onClick={onGenerateReport}
             disabled={reportGenerating}
             className="text-[11px] font-semibold text-terra-hi hover:underline disabled:opacity-50"
           >
-            {reportGenerating ? "…" : "Make"}
+            {reportGenerating ? "…" : sb.make}
           </button>
         </div>
         {reportError && <p className="text-[11px] text-terra-hi mb-2">{reportError}</p>}
         {reports[0] ? (
           <p className="text-[11px] text-bark-soft line-clamp-4">{reports[0].summary}</p>
         ) : (
-          <p className="text-[11px] text-bark-faint">No report yet.</p>
+          <p className="text-[11px] text-bark-faint">{sb.noReportYet}</p>
         )}
       </div>
     </div>

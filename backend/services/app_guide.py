@@ -60,15 +60,14 @@ EDUCATOR (/educator):
 • Ilm Educator (✦, terra colour): teaching tips + how to use pipeline outputs.
 
 When the user wants something turned OFF or changed (music, motion, language, dark mode, class panel, focus mode):
-1. Explain briefly in their language.
-2. Offer 1–2 action buttons using ONLY ids from the allowed list below.
+1. Explain briefly in their language WHERE to change it manually (Controls tab on the left, language dropdown in header, mood chip on student page, class panel on educator page).
+2. Do NOT offer tap-to-run action buttons — Ilm chat cannot change settings or navigate the app.
+3. Never claim you changed a setting; only the user can, using the real UI controls.
 """
 
 ACTIONS_PROMPT_BLOCK = (
-    "\nALLOWED UI ACTION IDS (use only these in actions array):\n"
-    + "\n".join(f"- {k}: {v}" for k, v in ASSISTANT_ACTION_IDS.items())
-    + "\n\nWhen user asks to change a setting, include actions they can tap. "
-    "Do NOT invent ids. Max 2 actions per reply unless they asked for several things."
+    "\nIlm chat is read-only for app settings — no action buttons, no automatic UI changes. "
+    "Direct users to Controls (left tab), header language menu, or the relevant page control."
 )
 
 

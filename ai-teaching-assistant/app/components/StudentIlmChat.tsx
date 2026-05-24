@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from "react";
 import * as api from "@/lib/api";
 import type {
-  IlmAssistantAction,
   Language,
   PocketsResponse,
   StudentChatActionResponse,
@@ -12,8 +11,6 @@ import { getAccSettings, speakIlmReply } from "@/lib/accessibility";
 import { trackEvent } from "@/lib/track";
 import { useUiStrings } from "@/lib/use-ui-strings";
 import { buildAppContextSnapshot, type AppContextExtras, type AssistantPage } from "@/lib/app-context";
-import { applyAssistantActions, executeAssistantAction } from "@/lib/ilm-assistant-actions";
-import { IlmActionChips } from "@/app/components/ilm/IlmActionChips";
 
 type ChatItem =
   | { from: "user"; text: string }
@@ -188,13 +185,12 @@ export function StudentIlmChat({
               : ui.ilm.actions.focusTip,
   }));
 
-  const [open, setOpen] = useState(landingMode);
-  const [actionsOpen, setActionsOpen] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [msgs, setMsgs] = useState<ChatItem[]>([{ from: "bot", text: welcome }]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [uiActions, setUiActions] = useState<IlmAssistantAction[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatTracked = useRef(false);
   const chatSessionRef = useRef<string | null>(null);
@@ -211,17 +207,7 @@ export function StudentIlmChat({
     chatSessionRef.current = null;
     setMsgs([{ from: "bot", text: welcome }]);
     setSuggestions([]);
-    setUiActions([]);
   }, [fileId, welcome, lang]);
-
-  function appendBot(text: string) {
-    setMsgs((m) => [...m, { from: "bot", text }]);
-  }
-
-  function runUiAction(id: string) {
-    executeAssistantAction(id, appPage);
-    setUiActions([]);
-  }
 
   async function runAction(action: (typeof ACTION_META)[number]["id"]) {
     if (!fileId || thinking) return;
@@ -247,7 +233,6 @@ export function StudentIlmChat({
     setMsgs((m) => [...m, { from: "user", text: msg }]);
     setThinking(true);
     setSuggestions([]);
-    setUiActions([]);
     try {
       if (!chatSessionRef.current) {
         const { session_id } = await api.newChatSession();
@@ -269,8 +254,6 @@ export function StudentIlmChat({
       );
       setMsgs((m) => [...m, { from: "bot", text: res.message }]);
       setSuggestions(res.suggestions ?? []);
-      setUiActions(res.actions ?? []);
-      applyAssistantActions(res.actions, appPage, appendBot);
       if (getAccSettings().autoRead) speakIlmReply(res.message, lang);
     } catch {
       setMsgs((m) => [
@@ -307,7 +290,7 @@ export function StudentIlmChat({
             </div>
             <div>
               <p className="text-white font-bold text-sm">Ilm</p>
-              <p className="text-white/80 text-xs">Your study kaki</p>
+              <p className="text-white/80 text-xs">{ui.ilm.tagline}</p>
             </div>
             {fileId && (
               <span className="ml-auto text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full">
@@ -382,28 +365,20 @@ export function StudentIlmChat({
           </div>
 
           <div className="shrink-0 border-t border-sand-mid bg-parch/80">
-            {(suggestions.length > 0 || uiActions.length > 0) && (
+            {suggestions.length > 0 && (
               <div className="px-3 pt-2.5 pb-2 flex flex-col gap-2">
-                {suggestions.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {suggestions.map((s, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => sendFreeChat(s)}
-                        className="text-[11px] bg-sage-lo text-sage-hi px-3 py-1 rounded-full font-medium"
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <IlmActionChips
-                  actions={uiActions}
-                  onAction={runUiAction}
-                  disabled={thinking}
-                  tone="sage"
-                />
+                <div className="flex flex-wrap gap-1.5">
+                  {suggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => sendFreeChat(s)}
+                      className="text-[11px] bg-sage-lo text-sage-hi px-3 py-1 rounded-full font-medium"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 

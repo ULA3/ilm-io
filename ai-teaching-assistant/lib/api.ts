@@ -20,20 +20,32 @@ function formatApiError(detail: unknown, status: number): string {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${BASE}${path}`;
+  const isAgent = path.includes("/api/agents/");
+  const timeoutMs = isAgent ? 180_000 : 90_000;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(url, {
       ...init,
+      signal: ctrl.signal,
       headers: apiFetchHeaders({
         "Content-Type": "application/json",
         ...init?.headers,
       }),
     });
-  } catch {
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error(
+        "Generation timed out — ILMU may still be working. Wait a moment and try again, or upload a shorter section."
+      );
+    }
     const hint = BASE ? BASE : "the Next.js proxy";
     throw new Error(
       `Cannot reach the backend (${hint}). Start it: cd backend → uvicorn main:app --reload --port 8000`
     );
+  } finally {
+    clearTimeout(timer);
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));

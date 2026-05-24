@@ -1,15 +1,36 @@
 # ilm.io — AI Teaching Assistant for Neurodivergent Learners
 
-An AI-powered platform that transforms uploaded study materials (PDF, audio, images) into accessible formats — slides, audiobooks, visual summaries, worksheets — optimised for ADHD, dyslexia, autism spectrum, and general neurodivergent learners.
+An inclusive learning platform that transforms uploaded study materials (PDF, images, audio, DOCX) into accessible formats — slides, audiobooks, visual summaries, worksheets — tailored for ADHD, dyslexia, autism spectrum, and other neurodivergent learners.
 
-An inclusive learning platform for neurodivergent students and the educators who support them.
+**Source code repository:** GitHub / GitLab monorepo with frontend, backend, API routes, database migrations, and configuration templates (no secrets committed).
 
-```
-Frontend (Next.js 15)  →  Backend (FastAPI)  →  LLM (YTL ILMU AI / nemo-super)
-                                             →  TTS (ElevenLabs / OpenAI)
-                                             →  OCR (Tesseract / Whisper)
-                                             →  Database & Storage (Supabase)
-```
+---
+
+## Table of contents
+
+1. [Technology stack](#technology-stack)
+2. [Project structure](#project-structure)
+3. [How the system is built](#how-the-system-is-built)
+4. [Setup](#setup)
+5. [Configuration files](#configuration-files)
+6. [API endpoints](#api-endpoints)
+7. [Database schema](#database-schema)
+8. [AI tools used](#ai-tools-used)
+9. [Troubleshooting](#troubleshooting)
+
+---
+
+## Technology stack
+
+| Layer | Technologies |
+|---|---|
+| **Frontend** | Next.js 15, React, TypeScript, Tailwind CSS, Framer Motion |
+| **Backend** | Python 3.11+, FastAPI, Uvicorn, Pydantic |
+| **AI / LLM** | YTL ILMU AI (`nemo-super`, GLM-based, OpenAI-compatible API) |
+| **Voice (TTS)** | ElevenLabs REST API (primary), OpenAI TTS (fallback) |
+| **Speech-to-text** | OpenAI Whisper (audio uploads) |
+| **Document processing** | PyMuPDF, Tesseract OCR, python-docx |
+| **Database & storage** | Supabase (PostgreSQL + object storage) |
 
 ---
 
@@ -17,166 +38,175 @@ Frontend (Next.js 15)  →  Backend (FastAPI)  →  LLM (YTL ILMU AI / nemo-supe
 
 ```
 FinTech_Hackathon/
-├── ai-teaching-assistant/   ← Next.js 15 frontend
+├── ai-teaching-assistant/          # Frontend (Next.js 15)
 │   ├── app/
-│   │   ├── page.tsx         ← Landing — Student / Educator role select
-│   │   ├── student/         ← Student dashboard
-│   │   └── educator/        ← Educator dashboard
-│   ├── lib/api.ts           ← Typed API client (calls FastAPI)
-│   └── .env.local           ← NEXT_PUBLIC_API_URL
-└── backend/                 ← FastAPI backend
-    ├── main.py
-    ├── config.py
-    ├── .env.example         ← Copy to .env and fill in keys
-    ├── models/schemas.py
-    ├── services/
-    │   ├── llm_client.py          ← YTL ILMU AI (nemo-super) — all LLM calls
-    │   ├── ai_service.py          ← prompts + chat (uses llm_client)
-    │   ├── document_processor.py← PDF / image / audio / DOCX extraction
-    │   ├── tts_service.py       ← ElevenLabs + OpenAI TTS fallback
-    │   └── supabase_client.py   ← DB queries + file storage
+│   │   ├── page.tsx                # Landing — role select (Student / Educator)
+│   │   ├── student/page.tsx        # Student dashboard
+│   │   ├── educator/page.tsx       # Educator dashboard
+│   │   ├── api/[...path]/route.ts  # Proxy to FastAPI (avoids CORS/timeouts)
+│   │   └── components/             # UI: chat, sidebar, landing, accessibility
+│   ├── lib/
+│   │   ├── api.ts                  # Typed API client
+│   │   ├── ui-strings-*.ts         # i18n (EN, BM, zh, ta)
+│   │   └── educator-class.ts       # Whole-class vs per-student modes
+│   ├── next.config.ts
+│   ├── package.json
+│   └── .env.example                # Copy to .env.local for frontend
+│
+└── backend/                        # Backend (FastAPI)
+    ├── main.py                     # App entry, CORS, router mount
+    ├── config.py                   # Settings from environment
+    ├── .env.example                # Backend env template (copy to .env)
+    ├── requirements.txt
+    ├── models/schemas.py           # Pydantic request/response models
     ├── routers/
-    │   ├── upload.py        ← POST /api/upload
-    │   ├── generate.py      ← POST /api/generate/{kind}
-    │   ├── chat.py          ← POST /api/chat
-    │   ├── analytics.py     ← POST /api/analytics/event
-    │   ├── students.py      ← GET  /api/students
-    │   └── reports.py       ← GET/POST /api/reports
-    └── supabase/migrations/001_initial.sql
+    │   ├── upload.py               # POST /api/upload
+    │   ├── generate.py             # POST /api/generate/{kind}
+    │   ├── agents.py               # POST /api/agents/* (multi-agent pipeline)
+    │   ├── chat.py                 # POST /api/chat
+    │   ├── students.py             # GET  /api/students
+    │   ├── analytics.py            # POST /api/analytics/event
+    │   └── reports.py              # GET/POST /api/reports
+    ├── services/
+    │   ├── llm_client.py           # YTL ILMU AI wrapper
+    │   ├── ai_service.py           # Prompts + generation
+    │   ├── agent_service.py        # Reader → Orchestrator → specialists
+    │   ├── document_processor.py   # PDF / OCR / Whisper extraction
+    │   ├── tts_service.py          # ElevenLabs + OpenAI TTS
+    │   └── supabase_client.py      # DB + storage
+    └── supabase/migrations/
+        └── 001_initial.sql         # PostgreSQL schema + seed data
 ```
 
 ---
 
-## Prerequisites
+## How the system is built
 
-| Tool | Version | Install |
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Browser (Next.js, port 3000)                 │
+│  Landing → Student / Educator dashboards → Upload → Generate    │
+│  Ilm chatbot (advisory only — does not change app settings)      │
+└────────────────────────────┬────────────────────────────────────┘
+                             │  /api/* proxy
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   FastAPI backend (port 8000)                      │
+│                                                                  │
+│  upload        → PyMuPDF / Tesseract / Whisper → extracted text │
+│  generate/*    → ILMU nemo-super → PPTX / PDF / MP3 artifacts   │
+│  agents/*      → Multi-agent pipeline (slides, transcribe, etc.)│
+│  chat          → ILMU with Ilm personality                        │
+│  audiobook/TTS → ElevenLabs REST → OpenAI fallback              │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        Supabase                                  │
+│  PostgreSQL: uploads, generations, students, engagement, chat   │
+│  Storage:    ilmio-uploads (originals + generated artifacts)    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Typical flow**
+
+1. User uploads a file → text is extracted and cached → `file_id` returned.
+2. User picks a format (slides, worksheet, audiobook, …) → backend calls ILMU with structured prompts → artifact saved to Supabase → download URL returned.
+3. Audiobook / transcribe paths call `tts_service.py`, which posts to ElevenLabs `/v1/text-to-speech/:voice_id` with `model_id` and `output_format`, then falls back to OpenAI TTS if needed.
+
+---
+
+## Setup
+
+### Prerequisites
+
+| Tool | Version | Notes |
 |---|---|---|
-| Node.js | 18+ | [nodejs.org](https://nodejs.org) |
-| Python | 3.11+ | [python.org](https://python.org) |
-| Tesseract OCR | any | `winget install UB-Mannheim.TesseractOCR` (Windows) |
-| pip | latest | comes with Python |
+| Node.js | 18+ | Frontend |
+| Python | 3.11+ | Backend |
+| Tesseract OCR | any | Required for image/scanned PDF uploads |
 
----
+### 1. Clone and configure secrets
 
-## Step 1 — API keys
-
-You need three free accounts:
-
-### YTL ILMU AI (LLM — required)
-1. Go to [ilmu.ai](https://ilmu.ai) and create an API key
-2. Set in `backend/.env`:
-   - `ILMU_API_KEY`
-   - `ILMU_BASE_URL` (OpenAI-compatible endpoint)
-   - `ILMU_MODEL=nemo-super`
-
-### Supabase (database + file storage — free tier)
-1. Go to [app.supabase.com](https://app.supabase.com) → **New project**
-2. Once created: **Project Settings → API**
-   - Copy **Project URL** → `SUPABASE_URL`
-   - Copy **service_role** secret (the long JWT starting with `eyJ`) → `SUPABASE_SERVICE_KEY`
-3. In the Supabase dashboard go to **SQL Editor** and paste + run the contents of `backend/supabase/migrations/001_initial.sql`
-4. Go to **Storage → New bucket** → name it `ilmio-uploads` → enable **Public bucket**
-
-### ElevenLabs (TTS audiobooks — free tier: 10k chars/month)
-1. Go to [elevenlabs.io](https://elevenlabs.io) → Sign up free
-2. **Profile → API Keys** → Create key → copy it
-
-### OpenAI (Whisper transcription for audio uploads — pay-per-use, ~$0.006/min)
-- Already configured if you have a key. Only required for MP3/WAV uploads.
-- Skip if you don't upload audio files — the rest works without it.
-
----
-
-## Step 2 — Backend setup
+Copy env templates — **never commit real keys**:
 
 ```powershell
-cd C:\FinTech_Hackathon\backend
-
-# Copy env template and fill in your keys
-Copy-Item .env.example .env
+copy backend\.env.example backend\.env
+copy ai-teaching-assistant\.env.example ai-teaching-assistant\.env.local
 ```
 
-Open `.env` and set:
-```env
-ILMU_API_KEY=...                # required
-ILMU_BASE_URL=https://api.ytlailabs.tech/v1
-ILMU_MODEL=nemo-super
-OPENAI_API_KEY=sk-...         # required only for audio file uploads
-ELEVENLABS_API_KEY=sk_...     # required for audiobook generation
-SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_SERVICE_KEY=eyJ...   # must be service_role, not anon
-SUPABASE_STORAGE_BUCKET=ilmio-uploads
-```
+Fill in `backend/.env` (see [Configuration files](#configuration-files)).
+
+**Accounts needed**
+
+| Service | Purpose | Sign up |
+|---|---|---|
+| YTL ILMU AI | All text generation & chat | [ilmu.ai](https://ilmu.ai) |
+| Supabase | Database + file storage | [supabase.com](https://supabase.com) |
+| ElevenLabs | Audiobook voice (10k chars/mo free) | [elevenlabs.io](https://elevenlabs.io) |
+| OpenAI | Whisper (audio upload) + TTS fallback | [platform.openai.com](https://platform.openai.com) |
+
+**Supabase one-time setup**
+
+1. Create a project → **Settings → API** → copy URL and **service_role** key.
+2. Run `backend/supabase/migrations/001_initial.sql` in the SQL Editor.
+3. Create a public storage bucket named `ilmio-uploads`.
+
+### 2. Backend
 
 ```powershell
-# Create virtual environment
+cd backend
 python -m venv venv
 .\venv\Scripts\Activate.ps1
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Start the API server
 uvicorn main:app --reload --port 8000
 ```
 
-The API will be live at **http://localhost:8000**
-Interactive docs at **http://localhost:8000/api/docs**
+- API: http://localhost:8000  
+- Docs: http://localhost:8000/api/docs  
 
----
-
-## Step 3 — Frontend setup
+### 3. Frontend
 
 ```powershell
-cd C:\FinTech_Hackathon\ai-teaching-assistant
-
-# Install dependencies (already done if you ran this before)
+cd ai-teaching-assistant
 npm install
-
-# Start the dev server
 npm run dev
 ```
 
-Open **http://localhost:3000** in your browser.
+- App: http://localhost:3000  
 
-`.env.local` already points the frontend at the backend:
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
+### 4. Run both (two terminals)
 
----
-
-## Running both at once (two terminals)
-
-**Terminal 1 — Backend:**
-```powershell
-cd C:\FinTech_Hackathon\backend
-.\venv\Scripts\Activate.ps1
-uvicorn main:app --reload --port 8000
-```
-
-**Terminal 2 — Frontend:**
-```powershell
-cd C:\FinTech_Hackathon\ai-teaching-assistant
-npm run dev
-```
+**Terminal 1 — backend:** `cd backend && .\venv\Scripts\Activate.ps1 && uvicorn main:app --reload --port 8000`  
+**Terminal 2 — frontend:** `cd ai-teaching-assistant && npm run dev`
 
 ---
 
-## How it works — user flow
+## Configuration files
 
-```
-1. Open http://localhost:3000
-2. Choose role: Student or Educator
-3. Upload a file (PDF, image, audio, DOCX)
-   └── Backend extracts text via PyMuPDF / Tesseract / Whisper
-4. Click a generate button (e.g. "Slides", "Worksheet")
-   └── FastAPI calls YTL ILMU AI (nemo-super) with structured agent prompts
-   └── Result is saved to Supabase
-   └── Frontend renders the output with a Download button
-5. Open the AI chatbot (bottom-right button)
-   └── Chat about the uploaded material in plain, simple language
-```
+### `backend/.env`
+
+| Variable | Required | Description |
+|---|---|---|
+| `ILMU_API_KEY` | Yes | YTL ILMU AI API key |
+| `ILMU_BASE_URL` | Yes | Default `https://api.ilmu.ai/v1` |
+| `ILMU_MODEL` | Yes | Default `nemo-super` |
+| `SUPABASE_URL` | Yes | Project URL from Supabase dashboard |
+| `SUPABASE_SERVICE_KEY` | Yes | **service_role** key (not anon) |
+| `SUPABASE_STORAGE_BUCKET` | Yes | Default `ilmio-uploads` |
+| `ELEVENLABS_API_KEY` | For TTS | Primary audiobook provider |
+| `ELEVENLABS_VOICE_ID` | Optional | Default premade voice `EXAVITQu4vr4xnSDxMaL` |
+| `ELEVENLABS_MODEL_ID` | Optional | Default `eleven_flash_v2_5` (efficient on free tier) |
+| `ELEVENLABS_OUTPUT_FORMAT` | Optional | Default `mp3_44100_128` |
+| `OPENAI_API_KEY` | Optional | Whisper + TTS fallback |
+| `FRONTEND_URL` | Optional | Default `http://localhost:3000` |
+
+### `ai-teaching-assistant/.env.local`
+
+| Variable | Description |
+|---|---|
+| `NEXT_PUBLIC_API_URL` | Leave empty to use built-in `/api` proxy, or set `http://localhost:8000` |
+| `BACKEND_URL` | Used by the Next.js API proxy (default `http://localhost:8000`) |
 
 ---
 
@@ -184,240 +214,110 @@ npm run dev
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/upload` | Upload a file — returns `file_id` + extracted text |
-| POST | `/api/generate/slides` | Generate slide deck (PPTX) |
-| POST | `/api/generate/audiobook` | Generate MP3 audiobook |
-| POST | `/api/generate/visual-summary` | Generate concept cards (PDF) |
-| POST | `/api/generate/worksheet` | Generate adaptive worksheet (PDF) |
+| GET | `/api/health` | Health check |
+| POST | `/api/upload` | Upload file → `file_id` + extracted text |
+| POST | `/api/generate/slides` | Slide deck (PPTX) |
+| POST | `/api/generate/audiobook` | MP3 audiobook (ElevenLabs → OpenAI) |
+| POST | `/api/generate/visual-summary` | Concept cards (PDF) |
+| POST | `/api/generate/worksheet` | Adaptive worksheet (PDF) |
 | POST | `/api/generate/simplified-text` | Plain-language rewrite (PDF) |
 | POST | `/api/generate/educator/{kind}` | Educator-specific outputs |
-| POST | `/api/chat` | AI chatbot message |
-| GET | `/api/students` | List student profiles |
-| POST | `/api/analytics/event` | Log engagement event |
-| GET | `/api/analytics/heatmap` | Topic difficulty heatmap |
-| GET | `/api/reports` | List weekly AI reports |
-| POST | `/api/reports/generate` | Trigger a new weekly report |
-| GET | `/api/health` | Health check |
+| POST | `/api/agents/{pipeline}` | Multi-agent generation (slides, transcribe, …) |
+| POST | `/api/chat` | Ilm chatbot |
+| GET | `/api/students` | Student profiles |
+| POST | `/api/analytics/event` | Engagement tracking |
+| GET | `/api/reports` | Weekly AI reports |
+| GET | `/api/download/{job_id}` | Download generated artifact |
 
-Full interactive docs: **http://localhost:8000/api/docs**
-
----
-
-## AI pipeline — services used
-
-| Service | Purpose | Cost |
-|---|---|---|
-| **YTL ILMU AI** (nemo-super) | All text generation — slides, worksheets, insights, chatbot, financial literacy | API key via ilmu.ai |
-| **ElevenLabs** | Audiobook TTS — natural, calm voice | 10,000 chars/month free |
-| **OpenAI Whisper** | Transcribe uploaded MP3/WAV → text | pay-per-use |
-| **OpenAI TTS** | Audiobook fallback if ElevenLabs unavailable | ~$0.015/1k chars |
-| **PyMuPDF** | PDF text extraction + page rendering | free (local) |
-| **Tesseract** | OCR for image-only PDFs and photos | free (local) |
-| **Supabase** | PostgreSQL DB + file storage + auth | free tier |
+Full interactive reference: http://localhost:8000/api/docs
 
 ---
 
-## AI Tools Used
+## Database schema
 
-### 1. YTL ILMU AI — `nemo-super`
+Defined in `backend/supabase/migrations/001_initial.sql`.
 
-**What it does:**
-The primary large language model powering every AI feature in ilm.io. Handles all structured text generation: slides, worksheets, visual summaries, simplified text, financial literacy explainers, educator content packs, the multi-agent pipeline (Reader → Orchestrator → SlideSorter / Transcriber / Examiner), and the ilmuist chatbot.
+| Table | Purpose |
+|---|---|
+| `uploads` | Uploaded files — filename, type, extracted text, storage path |
+| `generations` | Generated artifacts linked to uploads (slides, audiobook, …) |
+| `students` | Demo student profiles (condition, learning style, insights) |
+| `engagement_events` | Session analytics (slide views, quiz answers, scores) |
+| `chat_sessions` | Chat history per session |
+| `weekly_reports` | AI-generated educator summaries |
 
-**Why it was chosen:**
-- OpenAI-compatible API (drop-in with the `openai` Python SDK)
-- Natively multilingual: English, Bahasa Melayu, Mandarin Chinese (Simplified), Tamil — critical for Malaysia's multi-ethnic classroom context
-- Trained with Malaysian context: RM, DuitNow, EPF/KWSP, zakat, takaful — makes financial literacy outputs locally relevant
-- Hosted in Malaysia → lower latency for local users and data residency alignment
-
-**How it's used:**
-All LLM calls go through `backend/services/llm_client.py` which wraps the OpenAI client with `base_url=ilmu.ai` and `model=nemo-super`. Calls are retried up to 3× with exponential backoff (via `tenacity`). Heavy generation runs in a thread pool to avoid blocking FastAPI's async event loop.
-
-**Known limitations:**
-- Context window limits mean documents > 5,000–6,000 characters are silently truncated before being sent to the model; the API flags this with `truncated: true`
-- JSON-format output can fail to parse on rare occasions; the retry decorator handles most cases but complex worksheets may need a second attempt
-- Rate limits apply depending on API tier
+Extensions: `uuid-ossp`, `pg_trgm` (fuzzy search).
 
 ---
 
-### 2. ElevenLabs
+## AI tools used
 
-**What it does:**
-Converts extracted document text into a natural-sounding MP3 audiobook. Used in the "Generate Audiobook" feature for students who benefit from audio-based learning (dyslexia-friendly, ADHD support).
+### Ideas, research & statistics
 
-**Why it was chosen:**
-- High-quality, human-sounding voice synthesis (significantly more natural than OpenAI TTS for longer passages)
-- Simple REST API with Python SDK
-- Free tier (10,000 characters/month) is sufficient for classroom pilots
+| Tool | Role |
+|---|---|
+| **ChatGPT** | Brainstorming product features, UX flows, and neurodiversity-informed design patterns |
+| **Gemini** | Cross-checking Malaysian education context, multilingual content, and competitor research |
+| **Grok** | Rapid iteration on naming, taglines, and hackathon pitch framing |
 
-**How it's used:**
-`backend/services/tts_service.py` calls ElevenLabs with the first 3,000 characters of the extracted text. The resulting MP3 is stored in Supabase Storage and served via a download URL.
+### Coding & implementation
 
-**Known limitations:**
-- Free tier limit of 10,000 chars/month resets monthly; heavy use will exhaust it quickly
-- No multilingual voice support in the free tier (English voice only)
-- Automatically falls back to OpenAI TTS if the ElevenLabs key is missing or the call fails
+| Tool | Role |
+|---|---|
+| **Claude Code** | Backend services, agent pipeline, document processing, API design |
+| **Cursor** | Frontend components, i18n, educator/student dashboards, debugging, integration |
 
----
+### AI engine running the site
 
-### 3. OpenAI Whisper
+| Tool | Role |
+|---|---|
+| **YTL ILMU AI (GLM / `nemo-super`)** | Powers all live generation: slides, worksheets, visual summaries, simplified text, financial literacy content, multi-agent pipeline, and the Ilm chatbot. Implemented via `backend/services/llm_client.py` (OpenAI-compatible client, retries, thread-pool for long jobs). |
 
-**What it does:**
-Transcribes uploaded audio files (MP3, WAV) into text. The transcript is then treated like any other document — users can generate slides, worksheets, or summaries from a recorded lecture or podcast.
+### Voice generation
 
-**Why it was chosen:**
-- Best-in-class open speech recognition accuracy across accents and noise conditions
-- Widely supported via OpenAI's API
-- Pay-per-use keeps costs low for classroom-scale use
+| Tool | Role |
+|---|---|
+| **ElevenLabs** | Primary TTS for audiobooks and agent transcribe output. Calls `POST /v1/text-to-speech/:voice_id` with configurable `model_id` and `output_format` in `backend/services/tts_service.py`. |
 
-**How it's used:**
-`backend/services/document_processor.py` detects audio file uploads and sends them to `openai.audio.transcriptions.create(model="whisper-1")`. The returned transcript is stored alongside the file metadata.
+### Supporting AI / ML (not user-facing branding)
 
-**Known limitations:**
-- Requires an `OPENAI_API_KEY` — the app functions fully without it as long as users don't upload audio files
-- Accuracy drops on heavily accented or code-switched Malay–English speech
-- Long audio files (> 25 MB) must be split before upload
-
----
-
-### 4. OpenAI TTS (fallback)
-
-**What it does:**
-Generates audiobook MP3s when ElevenLabs is unavailable (missing API key or quota exceeded). Acts as a silent fallback so the audiobook feature never hard-fails.
-
-**Why it was chosen:**
-- Same API key as Whisper — zero additional credential setup
-- Reliable uptime with pay-per-use pricing
-- Acceptable quality for short educational excerpts
-
-**Known limitations:**
-- Slightly more robotic than ElevenLabs for longer passages
-- ~$0.015 per 1,000 characters — more expensive than ElevenLabs at scale
-
----
-
-### 5. PyMuPDF (`fitz`)
-
-**What it does:**
-Extracts text from PDF uploads. Handles multi-page PDFs, preserves paragraph structure, and renders pages to images for OCR fallback when a PDF contains scanned pages.
-
-**Why it was chosen:**
-- Fastest Python PDF library for text extraction
-- Handles complex layouts (columns, tables) better than `pdfplumber` alone
-- Provides pixel-level page rendering needed to feed scanned pages to Tesseract
-
-**How it's used:**
-`backend/services/document_processor.py` opens the PDF with `fitz.open()`, iterates pages, extracts text blocks, and joins them. If a page yields no text (scanned), it renders the page as a PNG and passes it to Tesseract.
-
-**Known limitations:**
-- Cannot extract text from password-protected PDFs
-- Table extraction is layout-heuristic — complex multi-column tables may merge incorrectly
-- Very large PDFs (> 50 pages) are processed in full, which can slow the upload step
-
----
-
-### 6. Tesseract OCR
-
-**What it does:**
-Performs optical character recognition on image-only PDFs and direct image uploads (JPG, PNG). Extracts printed text from scanned worksheets, textbook photos, or whiteboard images.
-
-**Why it was chosen:**
-- Best open-source OCR engine, actively maintained by Google
-- Supports Malay, Chinese (Simplified), and Tamil character sets alongside English
-- Free, runs locally — no API calls, no data sent to third parties
-
-**How it's used:**
-`backend/services/document_processor.py` calls `pytesseract.image_to_string()` on PIL images. For PDFs, PyMuPDF renders each page to a high-resolution PNG first, then Tesseract reads it.
-
-**Known limitations:**
-- Accuracy degrades on handwritten text, decorative fonts, or low-contrast scans
-- Must be installed separately (`winget install UB-Mannheim.TesseractOCR` on Windows); the backend will error on image uploads if it's not present
-- Slower than cloud OCR services — large image PDFs can take several seconds per page
-
----
-
-## Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        User's Browser                           │
-│                                                                 │
-│  Landing Page → Role Select (Student / Educator)                │
-│        │                                                        │
-│  ┌─────▼──────────┐        ┌──────────────────────┐            │
-│  │ Student        │        │ Educator Dashboard   │            │
-│  │ Dashboard      │        │ - Upload             │            │
-│  │ - Upload       │        │ - Generate per       │            │
-│  │ - Generate     │        │   condition (ADHD /  │            │
-│  │ - Chatbot(Ilm) │        │   Dyslexia / Autism) │            │
-│  │ - Mood tracker │        │ - Student profiles   │            │
-│  └─────┬──────────┘        │ - Analytics          │            │
-│        │                   └──────────┬───────────┘            │
-└────────┼──────────────────────────────┼────────────────────────┘
-         │  HTTP (Next.js proxy /api/*) │
-         ▼                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    FastAPI Backend (port 8000)                   │
-│                                                                 │
-│  POST /api/upload     → document_processor.py                   │
-│                         ├── PyMuPDF (PDF text)                  │
-│                         ├── Tesseract (OCR for images/scanned)  │
-│                         └── OpenAI Whisper (audio → text)       │
-│                                                                 │
-│  POST /api/generate/* → ai_service.py                           │
-│                         └── YTL ILMU AI nemo-super (LLM)        │
-│                                                                 │
-│  POST /api/agents/*   → agent_service.py                        │
-│                         └── Multi-agent pipeline:               │
-│                             Reader → Orchestrator →             │
-│                             SlideSorter / Transcriber /         │
-│                             Visualizer / Examiner               │
-│                                                                 │
-│  POST /api/chat       → ai_service.chat_response()              │
-│                         └── Ilm personality (YTL ILMU AI)       │
-│                                                                 │
-│  POST /api/generate/audiobook → tts_service.py                  │
-│                                  ├── ElevenLabs (primary)       │
-│                                  └── OpenAI TTS (fallback)      │
-└────────────────────┬────────────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Supabase (managed cloud)                    │
-│                                                                 │
-│  PostgreSQL DB                                                  │
-│  ├── uploads          (file metadata, extracted text)           │
-│  ├── chat_sessions    (conversation history)                    │
-│  ├── analytics_events (engagement tracking)                     │
-│  └── weekly_reports   (AI-generated educator summaries)         │
-│                                                                 │
-│  Storage Buckets                                                │
-│  ├── ilmio-uploads/   (original uploaded files)                 │
-│  └── artifacts/       (generated PPTX, PDF, MP3 files)          │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Data flow for a generation request:**
-1. User uploads file → `POST /api/upload` → PyMuPDF/Tesseract/Whisper extracts text → stored in Supabase + in-memory cache → returns `file_id`
-2. User clicks Generate → `POST /api/generate/{kind}` → text fetched from cache (or Supabase fallback) → YTL ILMU AI generates structured content → artifact saved to Supabase Storage → `download_url` returned
-3. User clicks Download → `GET /api/download/{job_id}` → served from in-memory cache (or recovered from Supabase Storage if server restarted)
+| Tool | Role |
+|---|---|
+| **OpenAI Whisper** | Transcribes uploaded MP3/WAV lectures |
+| **OpenAI TTS** | Automatic fallback when ElevenLabs is unavailable |
+| **Tesseract OCR** | Local OCR for scanned PDFs and images (no cloud API) |
 
 ---
 
 ## Troubleshooting
 
-**`ILMU_API_KEY` missing or LLM errors**
-→ Copy `backend/.env.example` to `.env` and set `ILMU_API_KEY`, `ILMU_BASE_URL`, `ILMU_MODEL`.
+**LLM errors / missing key**  
+Copy `backend/.env.example` → `.env` and set `ILMU_API_KEY`, `ILMU_BASE_URL`, `ILMU_MODEL`.
 
-**Upload returns 500**
-→ Check Tesseract is installed: `tesseract --version` in a terminal.
-→ For audio uploads, ensure `OPENAI_API_KEY` is set.
+**Upload returns 500 on images**  
+Install Tesseract: `winget install UB-Mannheim.TesseractOCR` then verify with `tesseract --version`.
 
-**Supabase 401 errors**
-→ You're using the anon/publishable key. Use the **service_role** key instead (long JWT starting with `eyJ`). Found at Supabase → Project Settings → API → `service_role`.
+**Supabase 401**  
+Use the **service_role** key from Supabase → Settings → API, not the anon/publishable key.
 
-**CORS errors in browser**
-→ Confirm the backend is running on port 8000 and `NEXT_PUBLIC_API_URL=http://localhost:8000` is set in `ai-teaching-assistant/.env.local`.
+**CORS / generation timeout in browser**  
+Keep the frontend proxy enabled (`NEXT_PUBLIC_API_URL` empty, `BACKEND_URL=http://localhost:8000` in `.env.local`).
 
-**ElevenLabs audiobook fails**
-→ Free tier is 10k chars/month. Either upgrade or the backend falls back to OpenAI TTS automatically if `OPENAI_API_KEY` is set.
+**ElevenLabs always falls back to OpenAI**
+
+The integration is working if you see `ElevenLabs TTS ok` in backend logs. Common failure reasons:
+
+1. **`detected_unusual_activity` (HTTP 401)** — ElevenLabs has disabled free-tier access for the account (often triggered by VPN/proxy or multiple free accounts). Fix: disable VPN, log in at [elevenlabs.io](https://elevenlabs.io) to verify account status, or upgrade to a paid plan. OpenAI TTS will be used meanwhile if `OPENAI_API_KEY` is set.
+2. **Quota exceeded** — Free tier is ~10,000 characters/month. Wait for reset or upgrade.
+3. **Invalid voice ID** — Use a voice from your ElevenLabs account or the default `EXAVITQu4vr4xnSDxMaL`.
+
+Check backend console for lines like `ElevenLabs TTS failed: …` — the message explains why fallback occurred.
+
+**Audio upload fails**  
+Set `OPENAI_API_KEY` for Whisper transcription.
+
+---
+
+## License
+
+Built for the FinTech Hackathon. See repository for license details.

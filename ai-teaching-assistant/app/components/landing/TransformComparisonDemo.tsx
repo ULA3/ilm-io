@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { getFormat, LANDING_COMPARE_FORMATS } from "@/lib/ilm-formats";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { getFormat } from "@/lib/ilm-formats";
 import {
   pickRandomLandingTopic,
   pickAnotherLandingTopic,
@@ -9,8 +9,11 @@ import {
 } from "@/lib/landing-demo-topics";
 import { FormatBadge } from "@/app/components/ilm/FormatBadge";
 import type { SlideFormatKind } from "@/lib/ilm-formats";
+import { useIlmLanguage } from "@/lib/ilm-language";
+import { getDemoUiStrings, localizeDemoTopic } from "@/lib/landing-demo-i18n";
+import { getFormatLabel } from "@/lib/localized-formats";
 
-type CompareId = (typeof LANDING_COMPARE_FORMATS)[number]["id"];
+type CompareId = "original" | "adhd" | "mindmap" | "dyslexia";
 
 function DemoImage({
   src,
@@ -66,13 +69,21 @@ function FlowDiagram({ steps }: { steps: LandingDemoTopic["flowSteps"] }) {
   );
 }
 
-function CompareBody({ id, topic }: { id: CompareId; topic: LandingDemoTopic }) {
+function CompareBody({
+  id,
+  topic,
+  ui,
+}: {
+  id: CompareId;
+  topic: LandingDemoTopic;
+  ui: ReturnType<typeof getDemoUiStrings>;
+}) {
   if (id === "original") {
     return (
       <div className="space-y-2">
-        <p className="text-[11px] font-bold text-terra-hi uppercase tracking-wide">Wall of text</p>
+        <p className="text-[11px] font-bold text-terra-hi uppercase tracking-wide">{ui.wallOfText}</p>
         <p className="text-bark-soft text-xs leading-relaxed line-clamp-6">{topic.original}</p>
-        <p className="text-[10px] text-bark-faint italic">Hard to scan · easy to zone out</p>
+        <p className="text-[10px] text-bark-faint italic">{ui.wallHint}</p>
       </div>
     );
   }
@@ -103,9 +114,7 @@ function CompareBody({ id, topic }: { id: CompareId; topic: LandingDemoTopic }) 
     return (
       <div className="space-y-2">
         <FlowDiagram steps={topic.flowSteps} />
-        <p className="text-[10px] text-center text-bark-faint">
-          Same as <strong>Visual Mind Map</strong> in Student Step 3
-        </p>
+        <p className="text-[10px] text-center text-bark-faint">{ui.mindMapHint}</p>
       </div>
     );
   }
@@ -119,7 +128,7 @@ function CompareBody({ id, topic }: { id: CompareId; topic: LandingDemoTopic }) 
           <span className="font-bold text-[#1A5C96]">BM:</span> {topic.exampleBm}
         </p>
         <p className="text-xs bg-white/70 rounded-xl px-2 py-2 border border-[#1A5C96]/30">
-          🇲🇾 <strong>Real life:</strong> {topic.exampleLocal}
+          🇲🇾 <strong>{ui.realLife}</strong> {topic.exampleLocal}
         </p>
       </div>
     );
@@ -140,16 +149,23 @@ function imageForColumn(id: CompareId, topic: LandingDemoTopic) {
 }
 
 export function TransformComparisonDemo() {
-  const [topic, setTopic] = useState<LandingDemoTopic | null>(null);
+  const { lang } = useIlmLanguage();
+  const ui = getDemoUiStrings(lang);
+  const [baseTopic, setBaseTopic] = useState<LandingDemoTopic | null>(null);
   const [focus, setFocus] = useState<CompareId | null>(null);
   const [imgKey, setImgKey] = useState(0);
 
+  const topic = useMemo(
+    () => (baseTopic ? localizeDemoTopic(baseTopic, lang) : null),
+    [baseTopic, lang]
+  );
+
   useEffect(() => {
-    setTopic(pickRandomLandingTopic());
+    setBaseTopic(pickRandomLandingTopic());
   }, []);
 
   const shuffleTopic = useCallback(() => {
-    setTopic((t) => (t ? pickAnotherLandingTopic(t.id) : pickRandomLandingTopic()));
+    setBaseTopic((t) => (t ? pickAnotherLandingTopic(t.id) : pickRandomLandingTopic()));
     setFocus(null);
     setImgKey((k) => k + 1);
   }, []);
@@ -170,17 +186,17 @@ export function TransformComparisonDemo() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-bark-faint">New topic each visit</p>
+        <p className="text-xs text-bark-faint">{ui.newTopicHint}</p>
         <button
           type="button"
           onClick={shuffleTopic}
           className="text-xs font-semibold text-sage-hi bg-sage-lo px-3 py-1.5 rounded-xl hover:bg-sage/20 transition-colors"
         >
-          ↻ Another topic
+          {ui.anotherTopic}
         </button>
       </div>
 
-      <div className="rounded-2xl overflow-hidden border border-sage/40" key={`hero-${topic.id}-${imgKey}`}>
+      <div className="rounded-2xl overflow-hidden border border-sage/40" key={`hero-${topic.id}-${imgKey}-${lang}`}>
         <DemoImage
           src={topic.images.hero}
           alt={`${topic.topic} illustration`}
@@ -199,31 +215,32 @@ export function TransformComparisonDemo() {
         className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"
         role="group"
         aria-label={`Compare learning formats for ${topic.topic}`}
-        key={`grid-${topic.id}-${imgKey}`}
+        key={`grid-${topic.id}-${imgKey}-${lang}`}
       >
-        {LANDING_COMPARE_FORMATS.map((col) => {
-          const f = col.formatKind ? getFormat(col.formatKind) : null;
-          const img = imageForColumn(col.id, topic);
-          const dim = focus !== null && focus !== col.id;
+        {ui.compareColumns.map((col) => {
+          const colId = col.id as CompareId;
+          const f = colId !== "original" ? getFormat(colId as SlideFormatKind) : null;
+          const img = imageForColumn(colId, topic);
+          const dim = focus !== null && focus !== colId;
           const border = f ? f.theme.border : "border-sand-mid";
           const panel = f ? f.theme.bgLo : "bg-sand";
 
           return (
             <article
               key={col.id}
-              onMouseEnter={() => setFocus(col.id)}
+              onMouseEnter={() => setFocus(colId)}
               onMouseLeave={() => setFocus(null)}
-              onFocus={() => setFocus(col.id)}
+              onFocus={() => setFocus(colId)}
               onBlur={() => setFocus(null)}
               tabIndex={0}
               className={`flex flex-col rounded-2xl border-2 overflow-hidden transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-sage ${border} ${
                 dim ? "opacity-55 scale-[0.98]" : "opacity-100 scale-100 shadow-lg"
-              } ${focus === col.id ? "ring-2 ring-sage ring-offset-2 ring-offset-cream" : ""}`}
+              } ${focus === colId ? "ring-2 ring-sage ring-offset-2 ring-offset-cream" : ""}`}
             >
               <header className="px-3 py-2 bg-white/70 border-b border-inherit shrink-0 space-y-1">
                 <div className="flex items-center justify-between gap-1">
                   <p className="text-xs font-bold text-bark-deep">{col.label}</p>
-                  {col.formatKind && <FormatBadge kind={col.formatKind} />}
+                  {colId !== "original" && <FormatBadge kind={colId as SlideFormatKind} />}
                 </div>
                 <p className="text-[10px] text-bark-faint">{col.tag}</p>
               </header>
@@ -236,19 +253,18 @@ export function TransformComparisonDemo() {
               />
 
               <div className={`flex-1 p-3 sm:p-4 text-left ${panel}`}>
-                <CompareBody id={col.id} topic={topic} />
+                <CompareBody id={colId} topic={topic} ui={ui} />
               </div>
 
-              {col.formatKind && (
+              {colId !== "original" && (
                 <p className="text-[9px] text-bark-faint px-2 pt-2 pb-2 border-t border-black/5 mt-1">
-                  → {getFormat(col.formatKind).shortLabel} in app
+                  → {getFormatLabel(lang, colId as SlideFormatKind)} {ui.inAppSuffix}
                 </p>
               )}
             </article>
           );
         })}
       </div>
-
     </div>
   );
 }

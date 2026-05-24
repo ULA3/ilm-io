@@ -1,5 +1,5 @@
 import type { Language } from "@/lib/api";
-import type { SlideFormatKind } from "@/lib/ilm-formats";
+import type { EducatorOutputKind, SlideFormatKind } from "@/lib/ilm-formats";
 
 export type FormatCopy = Record<
   SlideFormatKind,
@@ -202,4 +202,39 @@ export const FORMAT_COPY: Record<Language, FormatCopy> = {
   zh: ZH,
   ta: TA,
   rojak: ROJAK,
+};
+/** Localized sidebar tips for educator format recommendations */
+export const EDUCATOR_FORMAT_TIPS: Partial<
+  Record<Language, Partial<Record<EducatorOutputKind, string[]>>>
+> = {
+  en: {
+    adhd: ["15–20 min blocks", "Short breaks help"],
+    autism: ["Say the plan first", "No surprise format changes"],
+    dyslexia: ["Add audio if you can", "Extra time on readings"],
+    transcribe: ["Pair with Easy Read slides", "Use a calm environment"],
+  },
+  ms: {
+    adhd: ["Blok 15–20 min", "Rehat pendek membantu"],
+    autism: ["Sebut pelan dulu", "Jangan tukar format secara mengejut"],
+    dyslexia: ["Tambah audio jika boleh", "Masa extra untuk bacaan"],
+    transcribe: ["Gabung dengan slaid Baca Mudah", "Persekitaran tenang"],
+  },
+  zh: {
+    adhd: ["15–20 分钟一块", "短休息有帮助"],
+    autism: ["先说计划", "不要突然改格式"],
+    dyslexia: ["尽量配音频", "阅读多给时间"],
+    transcribe: ["搭配易读幻灯片", "安静环境更好"],
+  },
+  ta: {
+    adhd: ["15–20 min blocks", "Short breaks help"],
+    autism: ["Say the plan first", "No surprise format changes"],
+    dyslexia: ["Add audio if you can", "Extra time on readings"],
+    transcribe: ["Pair with Easy Read slides", "Use a calm environment"],
+  },
+  rojak: {
+    adhd: ["15–20 min blocks lah", "Short breaks help"],
+    autism: ["Say plan first", "No surprise format changes"],
+    dyslexia: ["Add audio if boleh", "Extra time for readings"],
+    transcribe: ["Pair with Easy Read slides", "Calm environment best"],
+  },
 };

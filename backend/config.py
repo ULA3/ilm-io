@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     # ── ElevenLabs — high-quality TTS for audiobook generation ───────────────
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = "EXAVITQu4vr4xnSDxMaL"
+    elevenlabs_model_id: str = "eleven_flash_v2_5"
+    elevenlabs_output_format: str = "mp3_44100_128"
 
     # ── Supabase ─────────────────────────────────────────────────────────────
     supabase_url: str
